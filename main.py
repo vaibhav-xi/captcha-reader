@@ -3,31 +3,28 @@ import matplotlib.pyplot as plt
 import os
 import cv2
 import string
-from tensorflow import keras
-from tensorflow.keras import layers, Model, callbacks
+
+from keras import layers, Model, callbacks
 from sklearn.model_selection import train_test_split
 
-# ======================
 # CONFIG
-# ======================
+
 DATASET_DIR = "dataset/samples"
-IMG_H, IMG_W = 50, 200
+IMG_H = 50
+IMG_W = 200
 MAX_LEN = 5
 
-characters = string.ascii_lowercase + "0123456789"
+characters = string.ascii_lowercase + string.ascii_uppercase + "0123456789"
 nchar = len(characters)
 
-# ======================
-# LOAD FILENAMES
-# ======================
-files = [f for f in os.listdir(DATASET_DIR) if f.endswith(".png")]
-n = len(files)
+# LOAD FILE LIST
 
-print("Total images:", n)
+files = [f for f in os.listdir(DATASET_DIR) if f.lower().endswith(".png")]
+print("Total images:", len(files))
 
-# ======================
+
 # PREPROCESS
-# ======================
+
 def preprocess():
     X = []
     y = [[] for _ in range(MAX_LEN)]
@@ -39,9 +36,8 @@ def preprocess():
         if img is None:
             continue
 
-        # Resize for safety (important improvement)
+        # ensure consistent size
         img = cv2.resize(img, (IMG_W, IMG_H))
-
         img = img.astype("float32") / 255.0
         img = np.expand_dims(img, -1)
 
@@ -53,9 +49,9 @@ def preprocess():
         X.append(img)
 
         for i, ch in enumerate(label):
-            onehot = np.zeros(nchar)
-            onehot[characters.index(ch)] = 1
-            y[i].append(onehot)
+            vec = np.zeros(nchar)
+            vec[characters.index(ch)] = 1
+            y[i].append(vec)
 
     X = np.array(X)
     y = [np.array(pos) for pos in y]
@@ -63,60 +59,73 @@ def preprocess():
     return X, y
 
 
-# ======================
 # MODEL
-# ======================
+
 def create_model():
     inp = layers.Input(shape=(IMG_H, IMG_W, 1))
 
-    x = layers.Conv2D(32, 3, padding="same", activation="relu")(inp)
+    x = layers.Conv2D(32, 3, activation="relu", padding="same")(inp)
     x = layers.MaxPooling2D()(x)
 
-    x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
+    x = layers.Conv2D(64, 3, activation="relu", padding="same")(x)
     x = layers.MaxPooling2D()(x)
 
-    x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
+    x = layers.Conv2D(128, 3, activation="relu", padding="same")(x)
     x = layers.BatchNormalization()(x)
     x = layers.MaxPooling2D()(x)
 
-    x = layers.Flatten()(x)
+    x = layers.GlobalAveragePooling2D()(x)
 
     outputs = []
     for i in range(MAX_LEN):
         d = layers.Dense(128, activation="relu")(x)
         d = layers.Dropout(0.4)(d)
-        outputs.append(layers.Dense(nchar, activation="softmax", name=f"char_{i}")(d))
+        outputs.append(
+            layers.Dense(nchar, activation="softmax", name=f"char_{i}")(d)
+        )
 
     model = Model(inp, outputs)
 
     model.compile(
         optimizer="adam",
         loss="categorical_crossentropy",
-        metrics=["accuracy"]
+        metrics=["accuracy"] * MAX_LEN
     )
 
     return model
 
+# DATA PREP
 
-# ======================
-# TRAIN
-# ======================
 X, y = preprocess()
 
-X_train, X_test, *y_split = train_test_split(
-    X, *y, test_size=0.2, random_state=42
+split = train_test_split(
+    X, *y,
+    test_size=0.2,
+    random_state=42
 )
 
-y_train = y_split[:MAX_LEN]
-y_test = y_split[MAX_LEN:]
+X_train, X_test = split[0], split[1]
+y_train = split[2::2]
+y_test = split[3::2]
+
+print("\nTrain size:", len(X_train))
+print("Test size:", len(X_test))
+
+# BUILD MODEL
 
 model = create_model()
 model.summary()
+
+
+# CALLBACKS
 
 cb = [
     callbacks.EarlyStopping(patience=8, restore_best_weights=True),
     callbacks.ModelCheckpoint("captcha_model.h5", save_best_only=True)
 ]
+
+
+# TRAIN
 
 history = model.fit(
     X_train,
@@ -127,40 +136,37 @@ history = model.fit(
     callbacks=cb
 )
 
-# ======================
-# PLOTS
-# ======================
+
+# PLOT LOSS
+
 plt.plot(history.history["loss"])
 plt.plot(history.history["val_loss"])
 plt.title("Loss")
 plt.legend(["train", "val"])
 plt.show()
 
-# ======================
 # EVALUATE
-# ======================
-print("\nTrain:")
+
+print("\nTrain evaluation:")
 model.evaluate(X_train, y_train)
 
-print("\nTest:")
+print("\nTest evaluation:")
 model.evaluate(X_test, y_test)
 
+# PREDICT FUNCTION
 
-# ======================
-# PREDICT
-# ======================
 def predict(filepath):
     img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
 
     if img is None:
-        print("Image not found")
+        print("Image not found:", filepath)
         return None
 
     img = cv2.resize(img, (IMG_W, IMG_H))
     img = img.astype("float32") / 255.0
     img = img[np.newaxis, :, :, np.newaxis]
 
-    preds = model.predict(img)
+    preds = model.predict(img, verbose=0)
 
     result = ""
     for p in preds:
@@ -168,12 +174,17 @@ def predict(filepath):
 
     return result
 
+# TEST PREDICTIONS
 
-# ======================
-# TEST LOCAL FILES
-# ======================
-for f in ["test_images/mnop2.png", "test_images/34d.png"]:
-    img = cv2.imread(f, cv2.IMREAD_GRAYSCALE)
-    plt.imshow(img, cmap="gray")
-    plt.show()
-    print("Predicted:", predict(f))
+TEST_FILES = [
+    "test_images/c1.png",
+    "test_images/c2.png"
+]
+
+for f in TEST_FILES:
+    if os.path.exists(f):
+        img = cv2.imread(f, cv2.IMREAD_GRAYSCALE)
+        plt.imshow(img, cmap="gray")
+        plt.title(f)
+        plt.show()
+        print("Predicted:", predict(f))
