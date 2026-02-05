@@ -5,7 +5,7 @@ import string
 import tensorflow as tf
 from keras import layers, Model
 
-DATASET_DIR = "dataset/orange-samples"
+DATASET_DIR = "../dataset/orange-samples"
 
 IMG_W = 200
 IMG_H = 50
