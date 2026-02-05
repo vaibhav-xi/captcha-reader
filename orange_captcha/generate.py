@@ -13,8 +13,8 @@ CHARS = string.ascii_letters + string.digits + "@#="
 
 # CONFIG
 
-OUTPUT_DIR = "/Volumes/samsung_980/projects/captcha-reader/dataset/generate_samples"
-TOTAL_IMAGES = 5
+OUTPUT_DIR = "/Volumes/samsung_980/projects/captcha-reader/dataset/generated_samples"
+TOTAL_IMAGES = 50000
 FONT_PATH = "fonts/DejaVuSans.ttf"
 
 # text

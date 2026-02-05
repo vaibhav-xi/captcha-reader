@@ -5,17 +5,21 @@ import string
 import tensorflow as tf
 from keras import layers, Model
 
-DATASET_DIR = "../dataset/orange-samples"
+DATASET_DIR = "../dataset/generated_samples"
 
 IMG_W = 200
 IMG_H = 50
 
 characters = string.ascii_letters + string.digits + "@=#"
-char_to_num = layers.StringLookup(vocabulary=list(characters), mask_token=None)
+char_to_num = layers.StringLookup(
+    vocabulary=list(characters),
+    mask_token=None
+)
+
 num_to_char = layers.StringLookup(
     vocabulary=char_to_num.get_vocabulary(),
     mask_token=None,
-    invert=True,
+    invert=True
 )
 
 # LOAD DATA
@@ -47,7 +51,12 @@ X = X[..., np.newaxis]
 label_lengths = np.array([len(t) for t in labels])
 max_label_len = max(label_lengths)
 
-y = char_to_num(tf.strings.unicode_split(labels, "UTF-8")).to_tensor()
+y = char_to_num(
+    tf.strings.unicode_split(labels, "UTF-8")
+).to_tensor(default_value=0)
+
+y = tf.maximum(y - 1, 0)
+
 y = y.numpy()
 
 # SPLIT
