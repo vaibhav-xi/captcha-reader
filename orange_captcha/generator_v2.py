@@ -1,6 +1,12 @@
+import os
 import random
-from PIL import Image, ImageDraw, ImageFont, ImageChops, ImageFilter
 import string
+from PIL import Image, ImageDraw, ImageFont, ImageChops, ImageFilter
+
+# CONFIG
+
+OUTPUT_DIR = "/Volumes/samsung_980/projects/captcha-reader/dataset/generated_samples_v2"
+TOTAL_IMAGES = 5
 
 WIDTH = 265
 HEIGHT = 67
@@ -9,7 +15,6 @@ ORANGE = (255, 165, 0)
 BLACK = (0, 0, 0)
 
 CHARS = string.ascii_letters + string.digits + "@#="
-
 
 # text
 
@@ -29,7 +34,6 @@ def load_font(size=50):
         except:
             continue
     return ImageFont.load_default()
-
 
 # overlay shapes
 
@@ -66,25 +70,16 @@ def draw_real_overlay(mask_draw):
     if random.random() < 0.35:
         mask_draw.polygon(corner_wedge(), fill=255)
 
-# generator — tuned
 
-def generate_realistic_sample(save_path="sample.png"):
+# draw jittered text mask
 
-    text = random_text()
-    font = load_font(50)
+def draw_text_mask(mask, text, font):
 
-    img = Image.new("RGB", (WIDTH, HEIGHT), ORANGE)
+    d = ImageDraw.Draw(mask)
 
-    overlay_mask = Image.new("L", (WIDTH, HEIGHT), 0)
-    draw_real_overlay(ImageDraw.Draw(overlay_mask))
-    img.paste(BLACK, mask=overlay_mask)
-
-    text_mask = Image.new("L", (WIDTH, HEIGHT), 0)
-    d = ImageDraw.Draw(text_mask)
-
-    glyph_sizes = [d.textbbox((0, 0), c, font=font) for c in text]
-    glyph_widths = [b[2] - b[0] for b in glyph_sizes]
-    glyph_heights = [b[3] - b[1] for b in glyph_sizes]
+    glyph_boxes = [d.textbbox((0, 0), c, font=font) for c in text]
+    glyph_widths = [b[2] - b[0] for b in glyph_boxes]
+    glyph_heights = [b[3] - b[1] for b in glyph_boxes]
 
     total_w = sum(glyph_widths)
     max_h = max(glyph_heights)
@@ -95,6 +90,7 @@ def generate_realistic_sample(save_path="sample.png"):
     x = start_x
 
     for c, gw in zip(text, glyph_widths):
+
         if random.random() < 0.55:
             y_offset = random.randint(-15, 15)
         else:
@@ -102,6 +98,19 @@ def generate_realistic_sample(save_path="sample.png"):
 
         d.text((x, base_y + y_offset), c, fill=255, font=font)
         x += gw
+
+# single sample generator
+
+def generate_one(text, font, save_path):
+
+    img = Image.new("RGB", (WIDTH, HEIGHT), ORANGE)
+
+    overlay_mask = Image.new("L", (WIDTH, HEIGHT), 0)
+    draw_real_overlay(ImageDraw.Draw(overlay_mask))
+    img.paste(BLACK, mask=overlay_mask)
+
+    text_mask = Image.new("L", (WIDTH, HEIGHT), 0)
+    draw_text_mask(text_mask, text, font)
 
     orange_text_mask = ImageChops.multiply(text_mask, overlay_mask)
     black_text_mask = ImageChops.subtract(text_mask, orange_text_mask)
@@ -114,11 +123,35 @@ def generate_realistic_sample(save_path="sample.png"):
 
     img.save(save_path, quality=random.randint(88, 95))
 
-    return text, save_path
+# batch driver
+
+def main():
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    font = load_font(50)
+
+    used = set()
+
+    while len(used) < TOTAL_IMAGES:
+
+        text = random_text()
+        if text in used:
+            continue
+
+        used.add(text)
+
+        filename = f"{text}.png"
+        path = os.path.join(OUTPUT_DIR, filename)
+
+        generate_one(text, font, path)
+
+        if len(used) % 500 == 0:
+            print("Generated:", len(used))
+
+    print("\nDone — generated", len(used), "unique captchas")
 
 
 # -------------------------
 
 if __name__ == "__main__":
-    t, p = generate_realistic_sample()
-    print("Generated:", t, p)
+    main()
