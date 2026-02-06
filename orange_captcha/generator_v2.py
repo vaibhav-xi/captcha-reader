@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageChops, ImageFilter
 # CONFIG
 
 OUTPUT_DIR = "/Volumes/samsung_980/projects/captcha-reader/dataset/generated_samples_v2"
-TOTAL_IMAGES = 5
+TOTAL_IMAGES = 50000
 
 WIDTH = 265
 HEIGHT = 67
@@ -145,8 +145,8 @@ def main():
 
         generate_one(text, font, path)
 
-        if len(used) % 500 == 0:
-            print("Generated:", len(used))
+        # if len(used) % 500 == 0:
+        #     print("Generated:", len(used))
 
     print("\nDone — generated", len(used), "unique captchas")
 
