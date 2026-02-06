@@ -3,7 +3,6 @@ import cv2
 import numpy as np
 import string
 import tensorflow as tf
-from tensorflow import keras
 from keras import layers, mixed_precision
 
 print("TensorFlow:", tf.__version__)
@@ -74,11 +73,13 @@ def encode_sample(path, label):
 
     img = tf.py_function(load_image, [path], tf.float32)
     img.set_shape((IMG_H, IMG_W, 1))
-    
-    label = char_to_num(label) - 1
-    label = tf.maximum(label, 0)
 
-    return {"image": img, "label": label}
+    label = tf.strings.unicode_split(label, "UTF-8")
+    label = char_to_num(label)
+
+    label.set_shape([None])
+
+    return img, label
 
 
 def make_dataset(paths, labels):
@@ -89,14 +90,14 @@ def make_dataset(paths, labels):
 
     ds = ds.padded_batch(
         BATCH_SIZE,
-        padded_shapes={
-            "image": (IMG_H, IMG_W, 1),
-            "label": [None]
-        },
-        padding_values={
-            "image": 0.0,
-            "label": tf.cast(0, tf.int64)
-        }
+        padded_shapes=(
+            (IMG_H, IMG_W, 1),
+            [None]
+        ),
+        padding_values=(
+            0.0,
+            tf.cast(0, tf.int64)
+        )
     )
 
     ds = ds.prefetch(tf.data.AUTOTUNE)
