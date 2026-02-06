@@ -28,13 +28,11 @@ characters = string.ascii_letters + string.digits + "@=#"
 char_to_num = layers.StringLookup(
     vocabulary=list(characters),
     mask_token=None,
-    oov_token=None
+    oov_token="[UNK]"
 )
 
 num_to_char = layers.StringLookup(
     vocabulary=char_to_num.get_vocabulary(),
-    mask_token=None,
-    oov_token=None,
     invert=True
 )
 
@@ -76,9 +74,9 @@ def encode_sample(path, label):
 
     img = tf.py_function(load_image, [path], tf.float32)
     img.set_shape((IMG_H, IMG_W, 1))
-
-    label = tf.strings.unicode_split(label, "UTF-8")
-    label = char_to_num(label)
+    
+    label = char_to_num(label) - 1
+    label = tf.maximum(label, 0)
 
     return {"image": img, "label": label}
 
