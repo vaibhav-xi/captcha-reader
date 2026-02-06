@@ -5,7 +5,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageChops, ImageFilter
 
 # CONFIG
 
-OUTPUT_DIR = "/Volumes/samsung_980/projects/captcha-reader/dataset/generated_samples_v2"
+OUTPUT_DIR = "/Volumes/samsung_980/projects/captcha-reader/dataset/generated_samples_v3"
 TOTAL_IMAGES = 50000
 
 WIDTH = 265
@@ -92,12 +92,12 @@ def draw_text_mask(mask, text, font):
     for c, gw in zip(text, glyph_widths):
 
         if random.random() < 0.55:
-            y_offset = random.randint(-15, 15)
+            y_offset = random.randint(-8, 8)
         else:
             y_offset = 0
 
         d.text((x, base_y + y_offset), c, fill=255, font=font)
-        x += gw
+        x += gw + random.randint(-2, 2)
 
 # single sample generator
 
