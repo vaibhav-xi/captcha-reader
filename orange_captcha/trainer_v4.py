@@ -5,21 +5,27 @@ import string
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks
 
-OUTPUT_DIR = "/home/jovyan/projects/captcha-reader/dataset/generated_samples"
+OUTPUT_DIR = "/home/jovyan/projects/dataset/generated_samples"
 IMG_W, IMG_H = 200, 50
 BATCH_SIZE = 64
 EPOCHS = 60
-MODEL_SAVE_PATH = "/home/jovyan/projects/captcha-reader/captcha_pred_model_v3.keras"
+MODEL_SAVE_PATH = "captcha_pred_model_v3.keras"
 
+print("\n===== ENV =====")
+print("TF:", tf.__version__)
 print("GPU:", tf.config.list_physical_devices("GPU"))
+print("================\n")
 
 characters = string.ascii_letters + string.digits + "@=#"
-print("Charset size:", len(characters))
+CHAR_LIST = list(characters)
+NUM_CLASSES = len(CHAR_LIST) + 1
+
+print("Charset size:", len(CHAR_LIST))
+print("CTC classes:", NUM_CLASSES)
 
 char_to_num = layers.StringLookup(
-    vocabulary=list(characters),
-    mask_token=None,
-    oov_token="[UNK]"
+    vocabulary=CHAR_LIST,
+    mask_token=None
 )
 
 num_to_char = layers.StringLookup(
@@ -27,8 +33,7 @@ num_to_char = layers.StringLookup(
     invert=True
 )
 
-paths = []
-labels = []
+paths, labels = [], []
 
 for f in os.listdir(OUTPUT_DIR):
     if f.endswith(".png"):
@@ -38,23 +43,33 @@ for f in os.listdir(OUTPUT_DIR):
 print("Samples:", len(paths))
 assert len(paths) >= 100000
 
-def load_img(path):
-    img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+bad = sum(c not in characters for t in labels for c in t)
+print("Bad label chars:", bad)
+assert bad == 0
+
+def load_img(p):
+    img = cv2.imread(p, cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        raise ValueError(p)
+
     img = cv2.equalizeHist(img)
     img = cv2.resize(img, (IMG_W, IMG_H))
     img = img.astype("float32") / 255.0
     return img[..., None]
 
-print("Loading images...")
+print("Loading images to RAM...")
 X = np.array([load_img(p) for p in paths], np.float32)
+print("X shape:", X.shape)
 
-y = char_to_num(
-    tf.strings.unicode_split(labels, "UTF-8")
-).to_tensor(default_value=0)
+split_chars = tf.strings.unicode_split(labels, "UTF-8")
 
-y = y.numpy().astype(np.int32) - 1
+y = char_to_num(split_chars).to_tensor(default_value=0)
 
-y[y < 0] = 0
+y = tf.cast(y - 1, tf.int32)
+
+y = tf.where(y < 0, 0, y)
+
+y = y.numpy()
 
 label_len = np.array([len(t) for t in labels], np.int32)
 
@@ -69,15 +84,17 @@ split = int(len(X)*0.9)
 X_train, X_val = X[idx[:split]], X[idx[split:]]
 y_train, y_val = y[idx[:split]], y[idx[split:]]
 len_train, len_val = label_len[idx[:split]], label_len[idx[split:]]
-
 labels_val = np.array(labels)[idx[split:]]
 
+print("Train:", len(X_train), "Val:", len(X_val))
+
 def make_ds(X,y,l):
-    return (tf.data.Dataset
-        .from_tensor_slices((X,y,l))
-        .shuffle(20000)
-        .batch(BATCH_SIZE)
-        .prefetch(tf.data.AUTOTUNE))
+    ds = tf.data.Dataset.from_tensor_slices((X,y,l))
+    ds = ds.shuffle(20000)
+    ds = ds.batch(BATCH_SIZE)
+    ds = ds.prefetch(tf.data.AUTOTUNE)
+
+    return ds.map(lambda a,b,c: ((a,b,c), tf.zeros([tf.shape(a)[0]])))
 
 train_ds = make_ds(X_train,y_train,len_train)
 val_ds   = make_ds(X_val,y_val,len_val)
@@ -88,43 +105,68 @@ x = inp
 for f in [64,128,256]:
     x = layers.Conv2D(f,3,padding="same",activation="relu")(x)
     x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D((2,2))(x)
+    x = layers.MaxPooling2D((2,1))(x)
 
 x = layers.Conv2D(256,3,padding="same",activation="relu")(x)
 x = layers.MaxPooling2D((2,1))(x)
 
+print("CNN out:", x.shape)
+
 x = layers.Permute((2,1,3))(x)
 x = layers.Reshape((-1, x.shape[2]*x.shape[3]))(x)
 
-x = layers.Dense(256,activation="relu")(x)
+print("Seq shape:", x.shape)
+
+x = layers.Dense(256, activation="relu")(x)
 x = layers.Dropout(0.3)(x)
 
-x = layers.Bidirectional(layers.LSTM(
-    256, return_sequences=True, unroll=True))(x)
+x = layers.Bidirectional(
+    layers.GRU(
+        256,
+        return_sequences=True,
+        activation="tanh",
+        recurrent_activation="sigmoid",
+        use_bias=True,
+        unroll=False 
+    )
+)(x)
 
-x = layers.Bidirectional(layers.LSTM(
-    128, return_sequences=True, unroll=True))(x)
+x = layers.Bidirectional(
+    layers.GRU(
+        128,
+        return_sequences=True,
+        activation="tanh",
+        recurrent_activation="sigmoid",
+        use_bias=True,
+        unroll=False
+    )
+)(x)
 
-out = layers.Dense(len(characters)+1,activation="softmax")(x)
+out = layers.Dense(NUM_CLASSES, activation="softmax")(x)
 
 base_model = models.Model(inp,out)
 base_model.summary()
 
 class CTCLoss(layers.Layer):
     def call(self, inputs):
-        y_true,y_pred,label_len = inputs
+        y_true, y_pred, label_len = inputs
 
         y_true = tf.cast(y_true, tf.int32)
-        label_len = tf.cast(label_len, tf.int32)
+        label_len = tf.cast(label_len, tf.int32)   # ← DO NOT add [:,None]
 
         b = tf.shape(y_pred)[0]
         t = tf.shape(y_pred)[1]
-        input_len = tf.ones((b,1),tf.int32)*t
+
+        input_len = tf.ones((b,1), tf.int32) * t
 
         loss = tf.keras.backend.ctc_batch_cost(
-            y_true, y_pred, input_len, label_len)
+            y_true,
+            y_pred,
+            input_len,
+            label_len
+        )
 
-        tf.print("CTC loss:", tf.reduce_mean(loss))
+        tf.print("CTC batch mean:", tf.reduce_mean(loss))
         self.add_loss(tf.reduce_mean(loss))
         return y_pred
 
@@ -136,39 +178,42 @@ loss_out = CTCLoss()([labels_in, base_model.output, len_in])
 train_model = models.Model([inp,labels_in,len_in], loss_out)
 train_model.compile(tf.keras.optimizers.Adam(1e-4))
 
+print("Train model ready")
+
 def decode(pred):
-    L = np.ones(pred.shape[0],np.int32)*pred.shape[1]
-    dec,_ = tf.keras.backend.ctc_decode(pred,L,beam_width=10)
+    L = np.ones(pred.shape[0])*pred.shape[1]
+    dec,_ = tf.keras.backend.ctc_decode(
+        pred, L, greedy=True)
     return dec[0].numpy()
 
 class Debug(callbacks.Callback):
     def on_epoch_end(self,e,l=None):
         p = base_model.predict(X_val[:8],verbose=0)
         d = decode(p)
-        print("\nPreview:")
+
+        print("\nPreview epoch", e+1)
         for i,s in enumerate(d[:5]):
             txt = "".join(
-                num_to_char(v+1).numpy().decode()
-                for v in s if v!=-1)
+                num_to_char(v).numpy().decode()
+                for v in s if v >= 0 and v < len(CHAR_LIST))
             print("GT:", labels_val[i], "PR:", txt)
 
-print("\nSanity overfit test on 512 samples")
+print("\nRunning 512-sample overfit sanity test")
 small = make_ds(X_train[:512],y_train[:512],len_train[:512])
-train_model.fit(
-    small.map(lambda x,y,l:((x,y,l),None)),
-    epochs=2)
+train_model.fit(small, epochs=2)
 
 train_model.fit(
-    train_ds.map(lambda x,y,l:((x,y,l),None)),
-    validation_data=val_ds.map(lambda x,y,l:((x,y,l),None)),
+    train_ds,
+    validation_data=val_ds,
     epochs=EPOCHS,
     callbacks=[
         Debug(),
         callbacks.EarlyStopping(patience=8,restore_best_weights=True),
-        callbacks.ModelCheckpoint("best.h5",
+        callbacks.ModelCheckpoint(
+            "best_weights.h5",
             save_weights_only=True,
             save_best_only=True)
-])
+    ])
 
 base_model.save(MODEL_SAVE_PATH)
-print("Saved:", MODEL_SAVE_PATH)
+print("\nSaved:", MODEL_SAVE_PATH)

@@ -26,6 +26,7 @@ def random_text():
 def load_font(size=50):
     for f in [
         "fonts/DejaVuSans.ttf",
+        "/home/jovyan/projects/captcha-reader/orange_captcha/fonts/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/Library/Fonts/Arial Bold.ttf",
     ]:
