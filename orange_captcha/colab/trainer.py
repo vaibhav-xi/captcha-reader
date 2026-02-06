@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import string
 import tensorflow as tf
-from keras import layers, mixed_precision
+from keras import layers, mixed_precision, backend, optimizers, Model
 
 print("TensorFlow:", tf.__version__)
 print("GPU:", tf.config.list_physical_devices("GPU"))
@@ -124,7 +124,7 @@ x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
 x = layers.MaxPooling2D((2,1))(x)
 
 # dynamic reshape
-shape = keras.backend.int_shape(x)
+shape = backend.int_shape(x)
 
 x = layers.Permute((2,1,3))(x)
 x = layers.Reshape((shape[2], shape[1]*shape[3]))(x)
@@ -145,7 +145,7 @@ output = layers.Dense(
     dtype="float32"
 )(x)
 
-model = keras.Model(input_img, output)
+model = Model(input_img, output)
 
 def ctc_loss(y_true, y_pred):
 
@@ -157,7 +157,7 @@ def ctc_loss(y_true, y_pred):
     label_len = tf.math.count_nonzero(y_true, axis=1, dtype=tf.int32)
     label_len = label_len[:,None]
 
-    return keras.backend.ctc_batch_cost(
+    return backend.ctc_batch_cost(
         y_true,
         y_pred,
         input_len,
@@ -165,7 +165,7 @@ def ctc_loss(y_true, y_pred):
     )
 
 model.compile(
-    optimizer=keras.optimizers.Adam(1e-4),
+    optimizer= optimizers.Adam(1e-4),
     loss=ctc_loss
 )
 
