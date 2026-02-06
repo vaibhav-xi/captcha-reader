@@ -16,7 +16,7 @@ if gpus:
 mixed_precision.set_global_policy("mixed_float16")
 
 
-DATASET_DIR = "/content/dataset/generated_samples_v2"  # change if needed
+DATASET_DIR = "/dataset/generated_samples"
 
 IMG_W = 200
 IMG_H = 50
