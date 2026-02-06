@@ -20,42 +20,24 @@ def valid_word(t):
 
 def text_cluster_mask(img, debug_dir):
 
-    h,w = img.shape[:2]
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    border = np.concatenate([
-        img[0:5,:,:].reshape(-1,3),
-        img[-5:,:,:].reshape(-1,3),
-        img[:,0:5,:].reshape(-1,3),
-        img[:,-5:,:].reshape(-1,3)
-    ])
+    _, th = cv2.threshold(gray, 25, 255, cv2.THRESH_BINARY)
+    save(debug_dir,"02_thresh", th)
 
-    bg = np.median(border, axis=0)
+    flood = th.copy()
+    flood = cv2.dilate(flood, np.ones((2,2),np.uint8))
+    h,w = th.shape
+    mask = np.zeros((h+2,w+2), np.uint8)
 
-    diff = np.linalg.norm(img.astype(np.float32)-bg, axis=2)
-    fg_mask = (diff > 40).astype(np.uint8)*255
-    save(debug_dir,"02_fg_mask", fg_mask)
+    cv2.floodFill(flood, mask, (0,0), 0)
+    cv2.floodFill(flood, mask, (w-1,0), 0)
+    cv2.floodFill(flood, mask, (0,h-1), 0)
+    cv2.floodFill(flood, mask, (w-1,h-1), 0)
 
-    fg_pixels = img[fg_mask==255]
+    save(debug_dir,"03_flood_removed", flood)
 
-    if len(fg_pixels) < 50:
-        return fg_mask
-
-    kmeans = KMeans(n_clusters=2, n_init=5).fit(fg_pixels)
-
-    centers = kmeans.cluster_centers_
-    text_cluster = np.argmax(centers.mean(axis=1))
-
-    labels = kmeans.labels_
-
-    mask = np.zeros((h,w), np.uint8)
-    coords = np.column_stack(np.where(fg_mask==255))
-    mask[coords[:,0], coords[:,1]] = (
-        (labels==text_cluster).astype(np.uint8)*255
-    )
-
-    save(debug_dir,"03_text_cluster_mask", mask)
-
-    return mask
+    return flood
 
 def segment_characters(mask, debug_dir):
 
