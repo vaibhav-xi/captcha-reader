@@ -5,8 +5,8 @@ import string
 import tensorflow as tf
 from keras import models
 
-DATASET_DIR = "../dataset/generated_samples_v2"
-MODEL_PATH = "captcha_ctc_model.keras"
+DATASET_DIR = "../dataset/generated_samples_v3"
+MODEL_PATH = "captcha_ctc_model_v2.keras"
 
 IMG_W = 200
 IMG_H = 50
@@ -16,7 +16,25 @@ characters = string.ascii_letters + string.digits + "@=#"
 idx_to_char = {i: c for i, c in enumerate(characters)}
 blank_index = len(characters)
 
-model = models.load_model(MODEL_PATH, compile=False)
+class CTCModel(tf.keras.Model):
+
+    def train_step(self, data):
+        x, y, label_len = data
+        with tf.GradientTape() as tape:
+            y_pred = self(x, training=True)
+            loss = tf.reduce_mean(y_pred)
+        return {"loss": loss}
+
+    def test_step(self, data):
+        return {"loss": 0.0}
+    
+# model = models.load_model(MODEL_PATH, compile=False)
+
+model = models.load_model(
+    MODEL_PATH,
+    custom_objects={"CTCModel": CTCModel},
+    compile=False
+)
 
 print("\nModel output shape:", model.output_shape)
 
