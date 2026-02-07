@@ -35,6 +35,13 @@ def preprocess(path):
     img = cv2.resize(img, (IMG_W, IMG_H))
     img = cv2.equalizeHist(img)
     img = img.astype("float32") / 255.0
+    
+    # print("pixel sample python:")
+    # print(img[0,0]*255)
+    # print(img[0,1]*255)
+    # print(img[0,2]*255)
+    # print("---")
+    
     return img
 
 def tta_variant(img):
@@ -103,6 +110,20 @@ def tta_predict(img, runs):
     batch = np.array(variants)[..., None]
 
     pred = model.predict(batch, verbose=0)
+    
+    print("first raw index python:", np.argmax(pred[0,0]))
+    print("first timestep top5:", np.argsort(pred[0,0])[-5:])
+    
+    top5 = np.argsort(pred[0,0])[-5:]
+    print("top5 python:", top5)
+    print("top5 probs:", pred[0,0,top5])
+    
+    # print("logits sample python:")
+    # print(pred[0,0,0])
+    # print(pred[0,1,0])
+    # print(pred[0,2,0])
+    # print("---")
+
     texts, confs = decode_with_conf(pred)
 
     # vote
