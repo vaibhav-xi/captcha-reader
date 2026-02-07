@@ -8,7 +8,7 @@ IMG_W = 200
 IMG_H = 50
 
 MODEL_PATH = "captcha_ctc_adapted_v3.keras"
-ONNX_PATH  = "captcha_ctc.onnx"
+ONNX_PATH  = "captcha_ctc_fixed.onnx"
 
 IMAGE_PATH = "test1.png"
 
