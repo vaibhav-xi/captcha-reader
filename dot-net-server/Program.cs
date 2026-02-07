@@ -3,162 +3,215 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
-using System.IO;
 using System.Linq;
 using System.Collections.Generic;
 
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
+using OpenCvSharp;
 
 namespace dot_net_server;
 
 public class Program
 {
+
+    static readonly string Chars =
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@=#";
+
+    const int W = 200;
+    const int H = 50;
+
+    const int TTA_RUNS = 12;
+    const int TTA_RUNS_HARD = 24;
+    const float CONF_THRESHOLD = 0.82f;
+
+    static Random Rng = new();
+
     public static void Main(string[] args)
     {
-        NativeLibrary.SetDllImportResolver(
-            typeof(InferenceSession).Assembly,
-            ResolveOnnx);
+        Console.WriteLine(OpenCvSharp.Cv2.GetVersionString());
+
+        var opt = new Microsoft.ML.OnnxRuntime.SessionOptions();
+        opt.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
+        opt.IntraOpNumThreads = Environment.ProcessorCount;
+
+        var session = new InferenceSession("captcha_ctc.onnx", opt);
 
         var builder = WebApplication.CreateBuilder(args);
-
-        builder.WebHost.ConfigureKestrel(o =>
-        {
-            o.Limits.MaxConcurrentConnections = 1000;
-            o.Limits.MaxRequestBodySize = 5 * 1024 * 1024;
-        });
-
         var app = builder.Build();
 
-        var session = new InferenceSession("captcha_ctc.onnx");
+        Console.WriteLine("OpenCV version: " + Cv2.GetVersionString());
 
-        string chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@=#";
-
-        string saveDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "captchas");
-
-        Directory.CreateDirectory(saveDir);
-
-        app.MapGet("/health", () => Results.Ok(new
-        {
-            ok = true,
-            model = "onnx",
-            time = DateTime.UtcNow
-        }));
-
-        app.MapPost("/api/captcha", async (CaptchaRequest req) =>
+        app.MapPost("/api/captcha", (CaptchaRequest req) =>
         {
             var sw = Stopwatch.StartNew();
 
-            if (string.IsNullOrWhiteSpace(req.Base64))
-                return Results.BadRequest("base64 missing");
-
+            // ---------- base64 decode ----------
             var b64 = req.Base64;
             int comma = b64.IndexOf(',');
-            if (comma > 0)
-                b64 = b64[(comma + 1)..];
+            if (comma > 0) b64 = b64[(comma + 1)..];
 
             byte[] bytes = Convert.FromBase64String(b64);
 
-            using var img = Image.Load<Rgba32>(bytes);
-            img.Mutate(x => x.Resize(200, 50).Grayscale());
+            using var baseMat = PreprocessBase(bytes);
 
-            float[] data = new float[50 * 200];
-            int idx = 0;
+            var (text, conf) = TtaPredict(session, baseMat, TTA_RUNS);
 
-            for (int y = 0; y < 50; y++)
-            for (int x = 0; x < 200; x++)
-                data[idx++] = img[x, y].R / 255f;
-
-            var tensor = new DenseTensor<float>(data, new[] { 1, 50, 200, 1 });
-
-            using var results = session.Run(
-                new[] { NamedOnnxValue.CreateFromTensor("image", tensor) });
-
-            var output = results.First().AsTensor<float>();
-
-            var text = DecodeCTC(
-                output,
-                output.Dimensions[1],
-                output.Dimensions[2],
-                chars);
+            if (conf < CONF_THRESHOLD)
+                (text, conf) = TtaPredict(session, baseMat, TTA_RUNS_HARD);
 
             sw.Stop();
 
-            return Results.Ok(new { ok = true, text, ms = sw.ElapsedMilliseconds });
+            return Results.Ok(new { text, conf, ms = sw.ElapsedMilliseconds });
         });
 
         app.Run("http://127.0.0.1:5077");
     }
 
-    private static IntPtr ResolveOnnx(
-        string libraryName,
-        Assembly assembly,
-        DllImportSearchPath? path)
+    static Mat PreprocessBase(byte[] bytes)
     {
-        if (libraryName == "onnxruntime")
-        {
-            var full = Path.Combine(
-                AppContext.BaseDirectory,
-                "runtimes",
-                "osx-arm64",
-                "native",
-                "libonnxruntime.dylib");
+        var src = Cv2.ImDecode(bytes, ImreadModes.Grayscale);
 
-            Console.WriteLine("Resolver loading: " + full);
+        var resized = new Mat();
+        Cv2.Resize(src, resized, new Size(W, H));      
+        Cv2.EqualizeHist(resized, resized);
 
-            if (File.Exists(full))
-                return NativeLibrary.Load(full);
-        }
-
-        return IntPtr.Zero;
+        src.Dispose();
+        return resized;
     }
 
-    static string DecodeCTC(Tensor<float> t, int time, int classes, string chars)
+    // ---------- TTA ----------
+
+    static Mat TtaVariant(Mat src)
     {
-        List<int> seq = new();
+        var v = src.Clone();
 
-        for (int i = 0; i < time; i++)
+        if (Rng.NextDouble() < 0.5)
+            Cv2.Dilate(v, v, Cv2.GetStructuringElement(
+                MorphShapes.Rect, new Size(2,2)));
+        else
+            Cv2.Erode(v, v, Cv2.GetStructuringElement(
+                MorphShapes.Rect, new Size(2,2)));
+
+        double alpha = Rand(0.9, 1.15);
+        double beta  = Rand(-0.05, 0.05) * 255.0;
+
+        v.ConvertTo(v, MatType.CV_8U, alpha, beta);
+
+        if (Rng.NextDouble() < 0.5)
         {
-            int best = 0;
-            float bestVal = float.MinValue;
-
-            for (int c = 0; c < classes; c++)
-            {
-                float v = t[0, i, c];
-                if (v > bestVal)
-                {
-                    bestVal = v;
-                    best = c;
-                }
-            }
-
-            seq.Add(best);
+            int c = Rng.Next(2, 10);
+            var roi = new Rect(c, 0, v.Width - 2*c, v.Height);
+            using var cropped = new Mat(v, roi);
+            Cv2.Resize(cropped, v, new Size(W, H));
         }
 
-        int blank = classes - 1;
-        List<int> cleaned = new();
+        return v;
+    }
+
+    static (string text, float conf) TtaPredict(
+        InferenceSession session,
+        Mat baseImg,
+        int runs)
+    {
+        var texts = new List<string>();
+        var confs = new List<float>();
+
+        for (int i = 0; i < runs; i++)
+        {
+            using var v = TtaVariant(baseImg);
+            var (t,c) = RunOnce(session, v);
+            texts.Add(t);
+            confs.Add(c);
+        }
+
+        var best = texts.GroupBy(x=>x)
+                        .OrderByDescending(g=>g.Count())
+                        .First().Key;
+
+        float voteConf = texts.Count(x=>x==best)/(float)runs;
+
+        float meanConf = confs.Zip(texts)
+                              .Where(p=>p.Second==best)
+                              .Select(p=>p.First)
+                              .DefaultIfEmpty(0)
+                              .Average();
+
+        float finalConf = 0.6f*voteConf + 0.4f*meanConf;
+
+        return (best, finalConf);
+    }
+
+    // ---------- Single inference ----------
+
+    static (string text, float conf) RunOnce(
+        InferenceSession session,
+        Mat img)
+    {
+        float[] data = new float[H*W];
+        int k = 0;
+
+        for (int y=0;y<H;y++)
+        for (int x=0;x<W;x++)
+            data[k++] = img.At<byte>(y,x)/255f;
+
+        var tensor = new DenseTensor<float>(
+            data, new[]{1,H,W,1});
+
+        using var res = session.Run(
+            new[]{ NamedOnnxValue.CreateFromTensor("image", tensor) });
+
+        var t = res.First().AsTensor<float>();
+
+        return DecodeWithConf(t);
+    }
+
+    // ---------- CTC decode ----------
+
+    static (string,float) DecodeWithConf(Tensor<float> t)
+    {
+        int time = t.Dimensions[1];
+        int classes = t.Dimensions[2];
+        int blank = Chars.Length;
+
+        List<int> seq = new();
+        List<float> probs = new();
+
         int prev = -1;
 
-        foreach (var s in seq)
+        for(int i=0;i<time;i++)
         {
-            if (s != prev && s != blank)
-                cleaned.Add(s);
-            prev = s;
+            int best=0;
+            float bestVal=float.MinValue;
+
+            for(int c=0;c<classes;c++)
+            {
+                float v=t[0,i,c];
+                if(v>bestVal){bestVal=v;best=c;}
+            }
+
+            if(best!=blank && best!=prev && best<Chars.Length)
+            {
+                seq.Add(best);
+                probs.Add(bestVal);
+            }
+
+            prev=best;
         }
 
-        return new string(cleaned.Select(i => chars[i]).ToArray());
+        string text = new string(seq.Select(i=>Chars[i]).ToArray());
+        float conf = probs.Count>0 ? probs.Average() : 0;
+
+        return (text, conf);
     }
+
+    static double Rand(double a,double b)
+        => a + Rng.NextDouble()*(b-a);
 }
 
 public record CaptchaRequest(
