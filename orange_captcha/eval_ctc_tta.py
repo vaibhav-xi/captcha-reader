@@ -6,7 +6,7 @@ import tensorflow as tf
 from keras import models
 
 DATASET_DIR = "../dataset/test_images"
-MODEL_PATH  = "captcha_ctc_adapted_v2.keras"
+MODEL_PATH  = "captcha_ctc_adapted_v3.keras"
 
 IMG_W = 200
 IMG_H = 50
