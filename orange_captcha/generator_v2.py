@@ -5,8 +5,8 @@ from PIL import Image, ImageDraw, ImageFont, ImageChops, ImageFilter
 
 # CONFIG
 
-OUTPUT_DIR = "/Volumes/samsung_980/projects/captcha-reader/dataset/generated_samples_v3"
-TOTAL_IMAGES = 50000
+OUTPUT_DIR = "/Volumes/samsung_980/projects/captcha-reader/dataset/dataset_5k"
+TOTAL_IMAGES = 5000
 
 WIDTH = 265
 HEIGHT = 67

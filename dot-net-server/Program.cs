@@ -32,7 +32,7 @@ public class Program
         Console.WriteLine("OpenCV: " + Cv2.GetVersionString());
 
         var opt = new Microsoft.ML.OnnxRuntime.SessionOptions();
-        var session = new InferenceSession("captcha_ctc.onnx", opt);
+        var session = new InferenceSession("captcha_ctc_v3_safe.onnx", opt);
 
         var meta = session.InputMetadata.First();
         Console.WriteLine($"ONNX input name: {meta.Key}");
