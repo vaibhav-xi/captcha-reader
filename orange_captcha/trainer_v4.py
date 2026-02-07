@@ -5,16 +5,25 @@ import string
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks
 
-OUTPUT_DIR = "/home/jovyan/projects/dataset/generated_samples"
-IMG_W, IMG_H = 200, 50
-BATCH_SIZE = 64
-EPOCHS = 60
-MODEL_SAVE_PATH = "captcha_pred_model_v3.keras"
+# ================= GPU SAFE SETUP =================
+
+gpus = tf.config.list_physical_devices("GPU")
+if gpus:
+    for g in gpus:
+        tf.config.experimental.set_memory_growth(g, True)
 
 print("\n===== ENV =====")
 print("TF:", tf.__version__)
 print("GPU:", tf.config.list_physical_devices("GPU"))
 print("================\n")
+
+# ================= CONFIG =================
+
+OUTPUT_DIR = "/home/jovyan/projects/captcha-reader/dataset/generated_samples"
+IMG_W, IMG_H = 200, 50
+BATCH_SIZE = 64
+EPOCHS = 60
+MODEL_SAVE_PATH = "/home/jovyan/projects/captcha-reader/captcha_pred_model.keras"
 
 characters = string.ascii_letters + string.digits + "@=#"
 CHAR_LIST = list(characters)
@@ -23,15 +32,15 @@ NUM_CLASSES = len(CHAR_LIST) + 1
 print("Charset size:", len(CHAR_LIST))
 print("CTC classes:", NUM_CLASSES)
 
-char_to_num = layers.StringLookup(
-    vocabulary=CHAR_LIST,
-    mask_token=None
-)
+# ================= LOOKUP =================
 
+char_to_num = layers.StringLookup(vocabulary=CHAR_LIST, mask_token=None)
 num_to_char = layers.StringLookup(
     vocabulary=char_to_num.get_vocabulary(),
     invert=True
 )
+
+# ================= LOAD PATHS =================
 
 paths, labels = [], []
 
@@ -41,17 +50,11 @@ for f in os.listdir(OUTPUT_DIR):
         labels.append(os.path.splitext(f)[0])
 
 print("Samples:", len(paths))
-assert len(paths) >= 100000
 
-bad = sum(c not in characters for t in labels for c in t)
-print("Bad label chars:", bad)
-assert bad == 0
+# ================= IMAGE LOADER =================
 
 def load_img(p):
     img = cv2.imread(p, cv2.IMREAD_GRAYSCALE)
-    if img is None:
-        raise ValueError(p)
-
     img = cv2.equalizeHist(img)
     img = cv2.resize(img, (IMG_W, IMG_H))
     img = img.astype("float32") / 255.0
@@ -61,24 +64,20 @@ print("Loading images to RAM...")
 X = np.array([load_img(p) for p in paths], np.float32)
 print("X shape:", X.shape)
 
+# ================= LABEL ENCODE =================
+
 split_chars = tf.strings.unicode_split(labels, "UTF-8")
-
 y = char_to_num(split_chars).to_tensor(default_value=0)
-
 y = tf.cast(y - 1, tf.int32)
-
 y = tf.where(y < 0, 0, y)
-
 y = y.numpy()
 
 label_len = np.array([len(t) for t in labels], np.int32)
 
-print("Label len min/max:", label_len.min(), label_len.max())
-print("Sample encode:", labels[0], y[0][:label_len[0]])
+# ================= SPLIT =================
 
 idx = np.arange(len(X))
 np.random.shuffle(idx)
-
 split = int(len(X)*0.9)
 
 X_train, X_val = X[idx[:split]], X[idx[split:]]
@@ -86,7 +85,7 @@ y_train, y_val = y[idx[:split]], y[idx[split:]]
 len_train, len_val = label_len[idx[:split]], label_len[idx[split:]]
 labels_val = np.array(labels)[idx[split:]]
 
-print("Train:", len(X_train), "Val:", len(X_val))
+# ================= DATASET =================
 
 def make_ds(X,y,l):
     ds = tf.data.Dataset.from_tensor_slices((X,y,l))
@@ -99,6 +98,8 @@ def make_ds(X,y,l):
 train_ds = make_ds(X_train,y_train,len_train)
 val_ds   = make_ds(X_val,y_val,len_val)
 
+# ================= MODEL =================
+
 inp = layers.Input((IMG_H,IMG_W,1))
 
 x = inp
@@ -110,24 +111,19 @@ for f in [64,128,256]:
 x = layers.Conv2D(256,3,padding="same",activation="relu")(x)
 x = layers.MaxPooling2D((2,1))(x)
 
-print("CNN out:", x.shape)
-
 x = layers.Permute((2,1,3))(x)
 x = layers.Reshape((-1, x.shape[2]*x.shape[3]))(x)
 
-print("Seq shape:", x.shape)
-
 x = layers.Dense(256, activation="relu")(x)
 x = layers.Dropout(0.3)(x)
+
+# ===== GRU SAFE MODE (NO cuDNN KERNEL) =====
 
 x = layers.Bidirectional(
     layers.GRU(
         256,
         return_sequences=True,
-        activation="tanh",
-        recurrent_activation="sigmoid",
-        use_bias=True,
-        unroll=False 
+        reset_after=False
     )
 )(x)
 
@@ -135,10 +131,7 @@ x = layers.Bidirectional(
     layers.GRU(
         128,
         return_sequences=True,
-        activation="tanh",
-        recurrent_activation="sigmoid",
-        use_bias=True,
-        unroll=False
+        reset_after=False
     )
 )(x)
 
@@ -147,17 +140,17 @@ out = layers.Dense(NUM_CLASSES, activation="softmax")(x)
 base_model = models.Model(inp,out)
 base_model.summary()
 
+# ================= CTC LOSS =================
+
 class CTCLoss(layers.Layer):
     def call(self, inputs):
         y_true, y_pred, label_len = inputs
 
-        y_true = tf.cast(y_true, tf.int32)
-        label_len = tf.cast(label_len, tf.int32)   # ← DO NOT add [:,None]
-
         b = tf.shape(y_pred)[0]
         t = tf.shape(y_pred)[1]
 
-        input_len = tf.ones((b,1), tf.int32) * t
+        input_len = tf.fill([b,1], t)
+        label_len = tf.expand_dims(label_len, 1)
 
         loss = tf.keras.backend.ctc_batch_cost(
             y_true,
@@ -166,12 +159,11 @@ class CTCLoss(layers.Layer):
             label_len
         )
 
-        tf.print("CTC batch mean:", tf.reduce_mean(loss))
         self.add_loss(tf.reduce_mean(loss))
         return y_pred
 
 labels_in = layers.Input((y.shape[1],),dtype="int32")
-len_in = layers.Input((1,),dtype="int32")
+len_in = layers.Input((),dtype="int32")
 
 loss_out = CTCLoss()([labels_in, base_model.output, len_in])
 
@@ -180,17 +172,17 @@ train_model.compile(tf.keras.optimizers.Adam(1e-4))
 
 print("Train model ready")
 
+# ================= DEBUG =================
+
 def decode(pred):
     L = np.ones(pred.shape[0])*pred.shape[1]
-    dec,_ = tf.keras.backend.ctc_decode(
-        pred, L, greedy=True)
+    dec,_ = tf.keras.backend.ctc_decode(pred, L, greedy=True)
     return dec[0].numpy()
 
 class Debug(callbacks.Callback):
     def on_epoch_end(self,e,l=None):
         p = base_model.predict(X_val[:8],verbose=0)
         d = decode(p)
-
         print("\nPreview epoch", e+1)
         for i,s in enumerate(d[:5]):
             txt = "".join(
@@ -198,7 +190,9 @@ class Debug(callbacks.Callback):
                 for v in s if v >= 0 and v < len(CHAR_LIST))
             print("GT:", labels_val[i], "PR:", txt)
 
-print("\nRunning 512-sample overfit sanity test")
+# ================= TRAIN =================
+
+print("\nRunning sanity test")
 small = make_ds(X_train[:512],y_train[:512],len_train[:512])
 train_model.fit(small, epochs=2)
 

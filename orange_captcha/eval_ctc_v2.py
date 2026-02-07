@@ -5,7 +5,7 @@ import string
 import tensorflow as tf
 from keras import models
 
-DATASET_DIR = "../dataset/generated_samples_v3"
+DATASET_DIR = "../dataset/test_images"
 MODEL_PATH = "captcha_ctc_model_v2.keras"
 
 IMG_W = 200
