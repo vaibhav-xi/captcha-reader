@@ -8,13 +8,9 @@ import string
 import tensorflow as tf
 from keras import layers, models
 
-# -------------------------
-# CONFIG
-# -------------------------
-
 IMG_W = 200
 IMG_H = 50
-RIGHT_PAD = 12   # helps CTC emit last characters like "aa"
+RIGHT_PAD = 12
 
 BATCH = 32
 EPOCHS = 40
@@ -33,10 +29,6 @@ P_HARD = 0.15
 characters = string.ascii_letters + string.digits + "@=#"
 BLANK_IDX = len(characters)
 
-# -------------------------
-# CHAR MAP
-# -------------------------
-
 char_to_num = layers.StringLookup(
     vocabulary=list(characters),
     mask_token=None
@@ -47,10 +39,6 @@ num_to_char = layers.StringLookup(
     mask_token=None,
     invert=True
 )
-
-# -------------------------
-# LOAD DATA
-# -------------------------
 
 def load_set(dirpath):
     paths, labels = [], []
@@ -77,15 +65,10 @@ hard_imgs, hard_y, hard_l = load_set(DIR_HARD)
 
 print("Loaded:", len(v2_imgs), len(v3_imgs), len(real_imgs), len(hard_imgs))
 
-# -------------------------
-# PREPROCESS
-# -------------------------
-
 def preprocess(img):
     img = cv2.resize(img, (IMG_W, IMG_H))
     img = cv2.equalizeHist(img)
 
-    # right padding to help CTC tails
     img = cv2.copyMakeBorder(
         img, 0, 0, 0, RIGHT_PAD,
         cv2.BORDER_CONSTANT,
@@ -93,10 +76,6 @@ def preprocess(img):
     )
 
     return img.astype("float32") / 255.0
-
-# -------------------------
-# AUGMENT (tail-safe)
-# -------------------------
 
 def augment(img, strength):
     img = img.copy()
@@ -115,10 +94,6 @@ def augment(img, strength):
         cv2.line(img, (0, y), (w, y), 0, 10)
 
     return preprocess(img)
-
-# -------------------------
-# SAMPLING
-# -------------------------
 
 def sample_source():
     r = np.random.rand()
@@ -158,10 +133,6 @@ train_ds = tf.data.Dataset.from_generator(
     )
 ).batch(BATCH).prefetch(tf.data.AUTOTUNE)
 
-# -------------------------
-# MODEL — ONNX SAFE
-# -------------------------
-
 inp = layers.Input(shape=(IMG_H, IMG_W+RIGHT_PAD, 1))
 
 x = layers.Conv2D(32, 3, activation="relu", padding="same")(inp)
@@ -171,7 +142,6 @@ x = layers.Conv2D(64, 3, activation="relu", padding="same")(x)
 x = layers.MaxPooling2D((2,2))(x)
 
 x = layers.Conv2D(128, 3, activation="relu", padding="same")(x)
-# ❌ removed last pooling to increase time steps
 
 x = layers.Permute((2,1,3))(x)
 
@@ -181,7 +151,6 @@ feat_dim = (IMG_H//4) * 128
 x = layers.Reshape((time_steps, feat_dim))(x)
 x = layers.Dense(128, activation="relu")(x)
 
-# ⭐ ONNX SAFE LSTMs
 x = layers.Bidirectional(layers.LSTM(
     128,
     return_sequences=True,
@@ -203,10 +172,6 @@ x = layers.Bidirectional(layers.LSTM(
 out = layers.Dense(len(characters)+1, activation="softmax")(x)
 
 infer_model = models.Model(inp, out)
-
-# -------------------------
-# CTC LOSS
-# -------------------------
 
 @tf.function
 def ctc_loss(y_true, y_pred, label_len):
@@ -238,10 +203,6 @@ train_model.compile(
     optimizer=tf.keras.optimizers.Adam(1e-4)
 )
 
-# -------------------------
-# BEAM DECODE (fixes aa loss)
-# -------------------------
-
 def decode_beam(pred):
     inp_len = np.ones(pred.shape[0]) * pred.shape[1]
     decoded,_ = tf.keras.backend.ctc_decode(
@@ -258,10 +219,6 @@ def decode_beam(pred):
         out.append("".join(num_to_char(s+1).numpy().astype(str)))
     return out
 
-# -------------------------
-# TRAIN
-# -------------------------
-
 for e in range(EPOCHS):
     epoch_var.assign(e)
 
@@ -272,10 +229,6 @@ for e in range(EPOCHS):
         steps_per_epoch=STEPS_PER_EPOCH,
         epochs=1
     )
-
-# -------------------------
-# EXPORT ONNX ONLY
-# -------------------------
 
 import tf2onnx
 
@@ -292,4 +245,4 @@ tf2onnx.convert.from_keras(
     output_path="ocr_safe.onnx"
 )
 
-print("\n✅ Saved ONNX → ocr_safe.onnx")
+print("\nSaved ONNX → ocr_safe.onnx")
