@@ -133,7 +133,10 @@ train_ds = tf.data.Dataset.from_generator(
     )
 ).batch(BATCH).prefetch(tf.data.AUTOTUNE)
 
-inp = layers.Input(shape=(IMG_H, IMG_W+RIGHT_PAD, 1))
+inp = layers.Input(
+    shape=(IMG_H, IMG_W+RIGHT_PAD, 1),
+    name="image"
+)
 
 x = layers.Conv2D(32, 3, activation="relu", padding="same")(inp)
 x = layers.MaxPooling2D((2,2))(x)
@@ -156,8 +159,7 @@ x = layers.Bidirectional(layers.LSTM(
     return_sequences=True,
     activation="tanh",
     recurrent_activation="sigmoid",
-    unroll=False,
-    implementation=2
+    unroll=True
 ))(x)
 
 x = layers.Bidirectional(layers.LSTM(
@@ -165,8 +167,7 @@ x = layers.Bidirectional(layers.LSTM(
     return_sequences=True,
     activation="tanh",
     recurrent_activation="sigmoid",
-    unroll=False,
-    implementation=2
+    unroll=True
 ))(x)
 
 out = layers.Dense(len(characters)+1, activation="softmax")(x)
@@ -232,11 +233,7 @@ for e in range(EPOCHS):
 
 import tf2onnx
 
-spec = (tf.TensorSpec(
-    (None, IMG_H, IMG_W+RIGHT_PAD, 1),
-    tf.float32,
-    name="image"
-),)
+spec = (infer_model.inputs[0],)
 
 tf2onnx.convert.from_keras(
     infer_model,
