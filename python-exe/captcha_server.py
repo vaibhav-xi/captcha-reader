@@ -12,8 +12,14 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from keras import models
 import uvicorn
+import sys
 
-MODEL_PATH = "captcha_ctc_adapted_v3.keras"
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys._MEIPASS)
+else:
+    BASE_DIR = Path(__file__).parent
+
+MODEL_PATH = BASE_DIR / "captcha_ctc_adapted_v3.keras"
 
 IMG_W = 200
 IMG_H = 50
@@ -46,6 +52,9 @@ blank_index = len(characters)
 
 class CTCModel(tf.keras.Model):
     pass
+
+print("Model path:", MODEL_PATH)
+print("Model exists:", MODEL_PATH.exists())
 
 model = models.load_model(
     MODEL_PATH,

@@ -1,0 +1,43 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Build EXE
+        run: |
+          pyinstaller captcha_server.py ^
+            --onefile ^
+            --collect-all tensorflow ^
+            --collect-all keras ^
+            --collect-all cv2 ^
+            --hidden-import uvicorn ^
+            --hidden-import uvicorn.logging ^
+            --hidden-import uvicorn.loops ^
+            --hidden-import uvicorn.loops.auto ^
+            --hidden-import uvicorn.protocols ^
+            --hidden-import uvicorn.protocols.http ^
+            --hidden-import uvicorn.protocols.websockets ^
+            --add-data "captcha_ctc_adapted_v3.keras;."
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: captcha-server-exe
+          path: dist/captcha_server.exe
