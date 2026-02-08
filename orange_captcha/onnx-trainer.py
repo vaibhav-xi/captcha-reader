@@ -26,6 +26,7 @@ P_REAL = 0.25
 P_HARD = 0.15
 
 characters = string.ascii_letters + string.digits + "@=#"
+BLANK_IDX = len(characters)
 
 char_to_num = layers.StringLookup(
     vocabulary=list(characters),
@@ -64,6 +65,13 @@ hard_imgs, hard_y, hard_l = load_set(DIR_HARD)
 print("Loaded sets:",
       len(v2_imgs), len(v3_imgs),
       len(real_imgs), len(hard_imgs))
+
+all_lens = np.concatenate([v2_l, v3_l, real_l])
+print("Label length mean:", np.mean(all_lens),
+      "min:", np.min(all_lens),
+      "max:", np.max(all_lens))
+
+assert np.max(all_lens) < 50, "CTC label length exceeds time steps"
 
 def preprocess(img):
     img = cv2.resize(img,(IMG_W,IMG_H))
@@ -156,6 +164,11 @@ val_ds = tf.data.Dataset.from_generator(
     )
 ).batch(BATCH)
 
+for xb,yb,lb in train_ds.take(1):
+    print("Batch X:", xb.shape)
+    print("Batch Y:", yb.shape)
+    print("Batch lens sample:", lb[:10].numpy())
+
 inp = layers.Input(shape=(IMG_H,IMG_W,1))
 
 x = layers.Conv2D(32,3,activation="relu",padding="same")(inp)
@@ -171,16 +184,15 @@ x = layers.Permute((2,1,3))(x)
 x = layers.Reshape((IMG_W//4, 6*128))(x)
 
 x = layers.Dense(128,activation="relu")(x)
+
 x = layers.Bidirectional(layers.LSTM(
-    128,
-    return_sequences=True,
-    unroll=False
+    128, return_sequences=True, unroll=False,
+    activation="tanh", recurrent_activation="sigmoid"
 ))(x)
 
 x = layers.Bidirectional(layers.LSTM(
-    64,
-    return_sequences=True,
-    unroll=False
+    64, return_sequences=True, unroll=False,
+    activation="tanh", recurrent_activation="sigmoid"
 ))(x)
 
 out = layers.Dense(len(characters)+1,activation="softmax")(x)
@@ -201,16 +213,22 @@ class CTCModel(tf.keras.Model):
         x,y,l = data
         with tf.GradientTape() as tape:
             p = self(x,training=True)
-            loss = ctc_loss_fn(y,p,l)
-        g = tape.gradient(loss,self.trainable_variables)
-        self.optimizer.apply_gradients(zip(g,self.trainable_variables))
-        return {"loss":tf.reduce_mean(loss)}
+            loss = tf.reduce_mean(ctc_loss_fn(y,p,l))
+
+        grads = tape.gradient(loss,self.trainable_variables)
+        self.optimizer.apply_gradients(zip(grads,self.trainable_variables))
+
+        grad_norm = tf.linalg.global_norm(
+            [g for g in grads if g is not None]
+        )
+
+        return {"loss": loss, "grad_norm": grad_norm}
 
     def test_step(self,data):
         x,y,l = data
         p = self(x,training=False)
-        loss = ctc_loss_fn(y,p,l)
-        return {"loss":tf.reduce_mean(loss)}
+        loss = tf.reduce_mean(ctc_loss_fn(y,p,l))
+        return {"loss": loss}
 
 train_model = CTCModel(infer_model.inputs, infer_model.outputs)
 
@@ -223,51 +241,47 @@ train_model.compile(
     optimizer=tf.keras.optimizers.Adam(lr_sched)
 )
 
+def blank_stats(pred):
+    probs = pred.argmax(axis=-1)
+    return np.mean(probs == BLANK_IDX)
+
+def pred_entropy(pred):
+    p = np.clip(pred,1e-8,1)
+    return np.mean(-np.sum(p*np.log(p),axis=-1))
+
 def decode_batch(pred):
-
     input_len = np.ones(pred.shape[0]) * pred.shape[1]
-
-    decoded,_ = tf.keras.backend.ctc_decode(
-        pred,
-        input_length=input_len,
-        greedy=True
-    )
-
+    decoded,_ = tf.keras.backend.ctc_decode(pred,input_len,greedy=True)
     decoded = decoded[0].numpy()
-
-    texts = []
+    out=[]
     for seq in decoded:
-        seq = seq[seq != -1]
-        chars = num_to_char(seq+1).numpy().astype(str)
-        texts.append("".join(chars))
-
-    return texts
-
+        seq = seq[seq!=-1]
+        out.append("".join(num_to_char(seq+1).numpy().astype(str)))
+    return out
 
 def run_epoch_test(model, samples=120):
-
     idxs = np.random.choice(len(real_imgs), samples, replace=True)
-
-    imgs=[]
-    gt=[]
-
-    for i in idxs:
-        imgs.append(preprocess(real_imgs[i])[...,None])
-        gt.append("".join(
-            num_to_char(real_y[i]+1).numpy().astype(str)
-        ))
+    imgs=[preprocess(real_imgs[i])[...,None] for i in idxs]
+    gt=["".join(num_to_char(real_y[i]+1).numpy().astype(str)) for i in idxs]
 
     x=np.array(imgs)
     pred=model.predict(x,verbose=0)
+
+    br=blank_stats(pred)
+    ent=pred_entropy(pred)
+
+    print("Blank frame rate:", round(br*100,2), "%")
+    print("Mean entropy:", round(ent,3))
+
+    if br>0.98: print("blank collapse suspected")
+    if ent<0.2: print("entropy collapse suspected")
+
     pr=decode_batch(pred)
+    acc=sum(p==t for p,t in zip(pr,gt))/samples
 
-    correct=sum(p==t for p,t in zip(pr,gt))
-    acc=correct/samples
-
-    print("\nDecode accuracy:", round(acc*100,2),"%")
-
+    print("Decode accuracy:", round(acc*100,2),"%")
     for i in range(5):
-        print("GT:",gt[i]," | PR:",pr[i])
+        print("GT:",gt[i],"| PR:",pr[i])
 
 for e in range(EPOCHS):
     epoch_var.assign(e)
