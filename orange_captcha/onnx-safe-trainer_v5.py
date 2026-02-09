@@ -8,17 +8,13 @@ import string
 import tensorflow as tf
 from tensorflow.keras import layers, models
 
-# =========================
-# CONFIG
-# =========================
-
 IMG_W = 200
 IMG_H = 50
 RIGHT_PAD = 12
 
 BATCH = 32
-EPOCHS = 12              # fine-tune epochs
-STEPS_PER_EPOCH = 400    # smaller for fine-tune
+EPOCHS = 12
+STEPS_PER_EPOCH = 400
 VAL_STEPS = 120
 
 DIR_V2   = "../dataset/generated_samples_v2"
@@ -26,18 +22,12 @@ DIR_V3   = "../dataset/generated_samples_v3"
 DIR_REAL = "../dataset/orange-samples"
 DIR_HARD = "../dataset/hard_negatives"
 
-# sampling mix
 P_V2   = 0.30
 P_V3   = 0.30
 P_REAL = 0.25
 P_HARD = 0.15
 
-# optional — load previous keras weights
 PRETRAINED = "ocr_ctc_infer.keras"
-
-# =========================
-# CHARSET
-# =========================
 
 characters = string.ascii_letters + string.digits + "@=#"
 BLANK_IDX = len(characters)
@@ -52,10 +42,6 @@ num_to_char = layers.StringLookup(
     mask_token=None,
     invert=True
 )
-
-# =========================
-# DATA
-# =========================
 
 def has_double_char(s):
     return any(a == b for a, b in zip(s, s[1:]))
@@ -90,10 +76,6 @@ print("Loaded sets:",
       len(v2_imgs), len(v3_imgs),
       len(real_imgs), len(hard_imgs))
 
-# =========================
-# PREPROCESS / AUGMENT
-# =========================
-
 def preprocess(img):
     img = cv2.resize(img, (IMG_W, IMG_H))
     img = cv2.equalizeHist(img)
@@ -125,10 +107,6 @@ def augment(img, strength):
 
     return preprocess(img)
 
-# =========================
-# SAMPLING
-# =========================
-
 def pick(imgs, y, l, dbl):
     if np.random.rand() < 0.35 and np.any(dbl):
         i = np.random.choice(np.where(dbl)[0])
@@ -148,10 +126,6 @@ def sample_source():
         return pick(real_imgs, real_y, real_l, real_d)
 
     return pick(hard_imgs, hard_y, hard_l, hard_d)
-
-# =========================
-# DATASETS
-# =========================
 
 epoch_var = tf.Variable(0)
 
@@ -186,15 +160,10 @@ val_ds = tf.data.Dataset.from_generator(
     )
 ).batch(BATCH)
 
-# debug batch print
 for xb, yb, lb in train_ds.take(1):
     print("Batch X:", xb.shape)
     print("Batch Y:", yb.shape)
     print("Batch lens tensor:", lb)
-
-# =========================
-# MODEL — ONNX SAFE GRAPH
-# =========================
 
 inp = layers.Input(
     shape=(IMG_H, IMG_W + RIGHT_PAD, 1),
@@ -212,7 +181,6 @@ x = layers.MaxPooling2D((2, 1))(x)
 
 x = layers.Permute((2, 1, 3))(x)
 
-# ✅ ONNX SAFE dynamic collapse
 def collapse_hw(t):
     s = tf.shape(t)
     return tf.reshape(t, [s[0], s[1], s[2] * s[3]])
@@ -221,7 +189,6 @@ x = layers.Lambda(collapse_hw, name="collapse_hw")(x)
 
 x = layers.Dense(128, activation="relu")(x)
 
-# CuDNN-free LSTM
 x = layers.Bidirectional(layers.LSTM(
     128, return_sequences=True,
     activation="tanh",
@@ -240,10 +207,6 @@ out = layers.Dense(len(characters) + 1, activation="softmax")(x)
 
 infer_model = models.Model(inp, out)
 
-# =========================
-# LOAD PRETRAINED (PARTIAL)
-# =========================
-
 LEGACY_H5 = "old_model_legacy.h5"
 
 if os.path.exists(LEGACY_H5):
@@ -255,13 +218,8 @@ if os.path.exists(LEGACY_H5):
         skip_mismatch=True
     )
 
-# freeze conv blocks for fast fine-tune
 for layer in infer_model.layers[:6]:
     layer.trainable = False
-
-# =========================
-# CTC LOSS
-# =========================
 
 def ctc_loss_fn(y_true, y_pred, label_len):
     b = tf.shape(y_pred)[0]
@@ -295,10 +253,6 @@ train_model.compile(
     loss=lambda y_true, y_pred: tf.constant(0.0)
 )
 
-# =========================
-# TRAIN
-# =========================
-
 for e in range(EPOCHS):
     epoch_var.assign(e)
 
@@ -312,10 +266,6 @@ for e in range(EPOCHS):
         validation_steps=VAL_STEPS,
         epochs=1
     )
-
-# =========================
-# SAVE + ONNX EXPORT
-# =========================
 
 infer_model.save("ocr_ctc_infer_safe.keras")
 
