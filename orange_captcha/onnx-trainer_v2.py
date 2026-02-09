@@ -6,14 +6,15 @@ import cv2
 import numpy as np
 import string
 import tensorflow as tf
-from keras import layers, models
+from tensorflow import keras
+from tensorflow.keras import layers, models
 
 IMG_W = 200
 IMG_H = 50
 RIGHT_PAD = 12
 
 BATCH = 32
-EPOCHS = 40
+EPOCHS = 1
 STEPS_PER_EPOCH = 800
 
 DIR_V2   = "../dataset/generated_samples_v2"
@@ -170,7 +171,7 @@ x = layers.Bidirectional(layers.LSTM(
     unroll=True
 ))(x)
 
-out = layers.Dense(len(characters)+1, activation="softmax")(x)
+out = layers.Dense(len(characters)+1, activation="softmax", name="logits")(x)
 
 infer_model = models.Model(inp, out)
 
@@ -233,13 +234,19 @@ for e in range(EPOCHS):
 
 import tf2onnx
 
-spec = (infer_model.inputs[0],)
+spec = (
+    tf.TensorSpec((None, IMG_H, IMG_W + RIGHT_PAD, 1), tf.float32, name="image"),
+)
 
-tf2onnx.convert.from_keras(
-    infer_model,
+export_model = tf.keras.models.clone_model(infer_model)
+export_model.set_weights(infer_model.get_weights())
+
+export_model.save("tmp_saved_model.keras")
+
+model_proto,_ = tf2onnx.convert.from_keras(
+    export_model,
     input_signature=spec,
-    opset=13,
-    output_path="ocr_safe.onnx"
+    opset=13
 )
 
 print("\nSaved ONNX → ocr_safe.onnx")
