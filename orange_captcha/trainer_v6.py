@@ -10,10 +10,10 @@ from tensorflow.keras import layers, models
 
 IMG_W = 200
 IMG_H = 50
-RIGHT_PAD = 24
+RIGHT_PAD = 12
 
 BATCH = 32
-EPOCHS = 18
+EPOCHS = 20
 STEPS_PER_EPOCH = 500
 
 P_V2   = 0.20
@@ -21,10 +21,10 @@ P_V3   = 0.20
 P_REAL = 0.40
 P_HARD = 0.20
 
-DIR_V2   = "../dataset/generated_samples_v2"
-DIR_V3   = "../dataset/generated_samples_v3"
+DIR_V2   = "../dataset/generated_samples_v4"
+DIR_V3   = "../dataset/generated_samples_v5"
 DIR_REAL = "../dataset/orange-samples"
-DIR_HARD = "../dataset/hard_negatives"
+DIR_HARD = "../dataset/hard_negatives_new"
 
 START_MODEL = "ocr_ctc_infer_safe.keras"
 
@@ -89,7 +89,7 @@ def preprocess(img):
     return mask.astype("float32")/255.0
 
 def add_polygon_occluder(img, strength):
-    if np.random.rand() > 0.6 * strength:
+    if np.random.rand() > 0.4 * strength:
         return img
 
     h,w = img.shape
@@ -138,9 +138,15 @@ train_ds=tf.data.Dataset.from_generator(
     )
 ).batch(BATCH).prefetch(tf.data.AUTOTUNE)
 
+@tf.keras.utils.register_keras_serializable()
+def collapse_hw(t):
+    s = tf.shape(t)
+    return tf.reshape(t, [s[0], s[1], s[2] * s[3]])
+
 print("\nLoading base model...")
 infer_model = tf.keras.models.load_model(
     START_MODEL,
+    custom_objects={"collapse_hw": collapse_hw},
     compile=False
 )
 
