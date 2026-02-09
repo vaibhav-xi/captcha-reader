@@ -141,7 +141,9 @@ train_ds = tf.data.Dataset.from_generator(
 for xb, yb, lb in train_ds.take(1):
     print("Batch X:", xb.shape)
     print("Batch Y:", yb.shape)
-    print("Batch lens sample:", lb[:10].numpy())
+    print("Batch lens tensor:", lb)
+
+
 
 inp = layers.Input(shape=(IMG_H, IMG_W + RIGHT_PAD, 1), name="image")
 
