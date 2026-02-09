@@ -16,9 +16,9 @@ BATCH = 32
 EPOCHS = 20
 STEPS_PER_EPOCH = 500
 
-P_V2   = 0.20
-P_V3   = 0.20
-P_REAL = 0.40
+P_V2   = 0.25
+P_V3   = 0.25
+P_REAL = 0.30
 P_HARD = 0.20
 
 DIR_V2   = "../dataset/generated_samples_v4"
@@ -126,7 +126,11 @@ epoch_var=tf.Variable(0)
 def gen_train():
     while True:
         img,y,l = sample_source()
-        s=min(1.0,float(epoch_var.numpy())/10.0)
+        
+        if (y < 0).any():
+            continue
+        
+        s=min(1.0,float(epoch_var.numpy())/15.0)
         yield augment(img,s)[...,None], y, l
 
 train_ds=tf.data.Dataset.from_generator(
@@ -179,7 +183,10 @@ train_model=CTCModel(
 )
 
 train_model.compile(
-    optimizer=tf.keras.optimizers.Adam(5e-5)
+    optimizer=tf.keras.optimizers.Adam(
+        learning_rate=5e-5,
+        clipnorm=5.0
+    )
 )
 
 def blank_stats(pred):
@@ -217,6 +224,7 @@ def run_epoch_test(model,n=120):
         print("GT:",gt[i],"| PR:",pr[i])
 
 for e in range(EPOCHS):
+    
     epoch_var.assign(e)
 
     print("\n====================")
