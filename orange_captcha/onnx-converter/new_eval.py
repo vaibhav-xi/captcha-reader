@@ -7,7 +7,7 @@ from tensorflow import keras
 
 KERAS_MODEL   = "ocr_ctc_infer_safe.keras"
 FEATURES_DIR  = "saved_features"
-DATASET_DIR   = "../../dataset/orange-samples"
+DATASET_DIR   = "../../dataset/new_500"
 
 IMG_W = 200
 IMG_H = 50
