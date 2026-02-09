@@ -7,7 +7,7 @@ from tensorflow import keras
 import onnxruntime as ort
 
 KERAS_MODEL = "ocr_ctc_infer.keras"
-ONNX_MODEL  = "model.onnx"
+ONNX_MODEL  = "model2.onnx"
 DATASET_DIR = "../dataset/orange-samples"
 
 IMG_W = 200
