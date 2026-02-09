@@ -169,7 +169,10 @@ for xb,yb,lb in train_ds.take(1):
     print("Batch Y:", yb.shape)
     print("Batch lens sample:", lb[:10].numpy())
 
-inp = layers.Input(shape=(IMG_H,IMG_W,1))
+inp = layers.Input(
+    shape=(IMG_H, IMG_W, 1),
+    name="image"
+)
 
 x = layers.Conv2D(32,3,activation="relu",padding="same")(inp)
 x = layers.MaxPooling2D((2,2))(x)
@@ -186,12 +189,12 @@ x = layers.Reshape((IMG_W//4, 6*128))(x)
 x = layers.Dense(128,activation="relu")(x)
 
 x = layers.Bidirectional(layers.LSTM(
-    128, return_sequences=True, unroll=False,
+    128, return_sequences=True, unroll=True,
     activation="tanh", recurrent_activation="sigmoid"
 ))(x)
 
 x = layers.Bidirectional(layers.LSTM(
-    64, return_sequences=True, unroll=False,
+    64, return_sequences=True, unroll=True,
     activation="tanh", recurrent_activation="sigmoid"
 ))(x)
 
@@ -301,15 +304,15 @@ for e in range(EPOCHS):
 
 infer_model.save("ocr_ctc_infer.keras")
 
-import tf2onnx
+import tf2onnx 
 
-spec=(tf.TensorSpec((None,IMG_H,IMG_W,1),tf.float32,name="image"),)
+spec = (infer_model.inputs[0],)
 
 tf2onnx.convert.from_keras(
     infer_model,
     input_signature=spec,
     opset=13,
-    output_path="ocr_ctc.onnx"
+    output_path="ocr_safe.onnx"
 )
 
 print("\nSaved → ocr_ctc.onnx")
