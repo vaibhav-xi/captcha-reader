@@ -1,7 +1,7 @@
 import tensorflow as tf
 import tf2onnx
 
-KERAS_PATH = "tmp_saved_model.keras"
+KERAS_PATH = "ocr_ctc_infer.keras"
 
 IMG_H = 50
 IMG_W = 212
