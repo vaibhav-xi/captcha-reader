@@ -6,8 +6,13 @@ import tensorflow as tf
 from tensorflow import keras
 import onnxruntime as ort
 
-KERAS_MODEL = "ocr_ctc_infer.keras"
-ONNX_MODEL  = "model2.onnx"
+@tf.keras.utils.register_keras_serializable()
+def collapse_hw(x):
+    s = tf.shape(x)
+    return tf.reshape(x, [s[0], s[1], s[2] * s[3]])
+
+KERAS_MODEL = "ocr_ctc_infer_safe.keras"
+ONNX_MODEL  = "model3.onnx"
 DATASET_DIR = "../dataset/orange-samples"
 
 IMG_W = 200
@@ -103,7 +108,11 @@ def eval_keras(x, y):
     print("KERAS MODEL EVAL")
     print("====================")
 
-    model = keras.models.load_model(KERAS_MODEL)
+    model = keras.models.load_model(
+        KERAS_MODEL,
+        compile=False,
+        custom_objects={"collapse_hw": collapse_hw}
+    )
 
     pred = model.predict(x, batch_size=64, verbose=1)
     dec  = ctc_beam_decode(pred)

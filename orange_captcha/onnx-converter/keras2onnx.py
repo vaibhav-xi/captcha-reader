@@ -1,32 +1,74 @@
 import tensorflow as tf
 import tf2onnx
+from tensorflow import keras
 
-KERAS_PATH = "ocr_ctc_infer.keras"
+########################################
+# needed to load original Lambda model
+########################################
 
-print("Loading keras model...")
-model = tf.keras.models.load_model(
-    KERAS_PATH,
-    compile=False
+@tf.keras.utils.register_keras_serializable()
+def collapse_hw(x):
+    s = tf.shape(x)
+    return tf.reshape(x, [s[0], s[1], s[2] * s[3]])
+
+########################################
+# ONNX-safe replacement layer
+########################################
+
+class CollapseHWStatic(tf.keras.layers.Layer):
+    def call(self, x, mask=None, training=None):
+        b, h, w, c = x.shape
+        return tf.reshape(x, (-1, h, w * c))
+
+########################################
+
+print("Loading model...")
+
+model = keras.models.load_model(
+    "ocr_ctc_infer_safe.keras",
+    compile=False,
+    custom_objects={"collapse_hw": collapse_hw}
 )
 
-print("Model input:", model.inputs)
-print("Model output:", model.outputs)
+########################################
+# clone graph safely
+########################################
 
-spec = (
-    tf.TensorSpec(
-        model.inputs[0].shape,
-        tf.float32,
-        name="image"
-    ),
-)
+def replace_layer(layer):
+    if isinstance(layer, tf.keras.layers.Lambda) and layer.name == "collapse_hw":
+        print("Replacing collapse_hw Lambda → static layer")
+        return CollapseHWStatic(name="collapse_hw_static")
+    return layer
 
-print("Converting (from_keras)...")
+print("Cloning model...")
 
-tf2onnx.convert.from_keras(
+new_model = keras.models.clone_model(
     model,
-    input_signature=spec,
-    opset=13,
-    output_path="ocr_safe.onnx"
+    clone_function=replace_layer
 )
 
-print("✅ Saved → ocr_safe.onnx")
+new_model.set_weights(model.get_weights())
+
+########################################
+# Keras 3 SavedModel export
+########################################
+
+print("Exporting SavedModel...")
+new_model.export("saved_fixed")
+
+########################################
+# convert to ONNX
+########################################
+
+print("Converting to ONNX...")
+
+spec = (tf.TensorSpec([1,50,212,1], tf.float32, name="image"),)
+
+tf2onnx.convert.from_saved_model(
+    "saved_fixed",
+    input_signature=spec,
+    opset=17,
+    output_path="model_fixed.onnx"
+)
+
+print("✅ DONE — model_fixed.onnx created")
