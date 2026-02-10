@@ -20,7 +20,7 @@ payload = {
 print("base64 String: ", b64)
 
 r = requests.post(
-    "http://127.0.0.1:5077/api/captcha",
+    "http://127.0.0.1:8080/predict_base64",
     json=payload,
     timeout=10
 )

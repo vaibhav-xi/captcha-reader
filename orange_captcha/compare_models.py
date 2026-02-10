@@ -5,8 +5,8 @@ import string
 import tensorflow as tf
 from tensorflow import keras
 
-MODEL_A = "ocr_ctc_infer_safe_v6.keras"
-MODEL_B = "ocr_ctc_infer_safe_v7.keras"
+MODEL_A = "ocr_ctc_infer_safe_v7.keras"
+MODEL_B = "ocr_ctc_infer_safe_v8.keras"
 DATASET_DIR = "../dataset/new_500"
 
 IMG_W = 200
