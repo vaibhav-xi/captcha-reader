@@ -4,8 +4,8 @@ import numpy as np
 import random
 import string
 
-OUT_DIR = "../dataset/targeted_images"
-N_SAMPLES = 15000
+OUT_DIR = "../dataset/fresh_sample"
+N_SAMPLES = 1000
 
 W = 200
 H = 50
