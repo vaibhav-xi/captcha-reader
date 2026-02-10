@@ -7,16 +7,18 @@ def collapse_hw(x):
     return tf.reshape(x, [s[0], s[1], s[2]*s[3]])
 
 base = keras.models.load_model(
-    "ocr_ctc_infer_safe.keras",
+    "ocr_ctc_infer_safe_v9.keras",
     compile=False,
     custom_objects={"collapse_hw": collapse_hw}
 )
 
 feature_model = keras.Model(
-    base.input,
-    base.layers[-2].output
+    inputs=base.input,
+    outputs=base.layers[-2].output
 )
 
-feature_model.export("saved_features")
+feature_model(tf.zeros([1,50,212,1]))
 
-print("Saved feature model")
+feature_model.export("saved_features_tfnet")
+
+print("SavedModel exported")

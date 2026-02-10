@@ -1,5 +1,6 @@
 dataset/
 env
+export_env
 __pycache__
 .DS_Store
 .github
