@@ -6,20 +6,15 @@ import cv2
 import numpy as np
 import string
 import tensorflow as tf
-from tensorflow.keras import layers, models
+from tensorflow.keras import layers
 
 IMG_W = 200
 IMG_H = 50
 RIGHT_PAD = 12
 
 BATCH = 32
-EPOCHS = 20
-STEPS_PER_EPOCH = 500
-
-P_V2   = 0.25
-P_V3   = 0.25
-P_REAL = 0.30
-P_HARD = 0.20
+EPOCHS = 16
+STEPS_PER_EPOCH = 250
 
 DIR_V2   = "../dataset/generated_samples_v4"
 DIR_V3   = "../dataset/generated_samples_v5"
@@ -31,19 +26,12 @@ START_MODEL = "ocr_ctc_infer_safe.keras"
 characters = string.ascii_letters + string.digits + "@=#"
 BLANK_IDX = len(characters)
 
-char_to_num = layers.StringLookup(
-    vocabulary=list(characters),
-    mask_token=None
-)
-
+char_to_num = layers.StringLookup(vocabulary=list(characters), mask_token=None)
 num_to_char = layers.StringLookup(
     vocabulary=char_to_num.get_vocabulary(),
     mask_token=None,
     invert=True
 )
-
-def has_double_char(s):
-    return any(a == b for a, b in zip(s, s[1:]))
 
 def load_set(dirpath):
     paths, labels = [], []
@@ -60,80 +48,70 @@ def load_set(dirpath):
 
     y = (y - 1).numpy().astype(np.int32)
     lens = np.array([len(t) for t in labels], np.int32)
-    dbl  = np.array([has_double_char(t) for t in labels])
 
-    return imgs, y, lens, dbl
+    good = np.all(y >= 0, axis=1)
 
-v2_imgs, v2_y, v2_l, v2_d = load_set(DIR_V2)
-v3_imgs, v3_y, v3_l, v3_d = load_set(DIR_V3)
-real_imgs, real_y, real_l, real_d = load_set(DIR_REAL)
-hard_imgs, hard_y, hard_l, hard_d = load_set(DIR_HARD)
+    return (
+        [imgs[i] for i in range(len(imgs)) if good[i]],
+        y[good],
+        lens[good],
+    )
+
+v2_imgs, v2_y, v2_l = load_set(DIR_V2)
+v3_imgs, v3_y, v3_l = load_set(DIR_V3)
+real_imgs, real_y, real_l = load_set(DIR_REAL)
+hard_imgs, hard_y, hard_l = load_set(DIR_HARD)
 
 print("Loaded:",
       len(v2_imgs), len(v3_imgs),
       len(real_imgs), len(hard_imgs))
 
 def preprocess(img):
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    g = cv2.resize(g,(IMG_W,IMG_H))
+    g = cv2.equalizeHist(g)
 
-    mask = cv2.inRange(hsv, (15,80,80), (40,255,255))
-    mask = 255 - mask
-
-    mask = cv2.resize(mask,(IMG_W,IMG_H))
-
-    mask = cv2.copyMakeBorder(
-        mask,0,0,0,RIGHT_PAD,
+    g = cv2.copyMakeBorder(
+        g,0,0,0,RIGHT_PAD,
         cv2.BORDER_CONSTANT,value=255
     )
 
-    return mask.astype("float32")/255.0
+    return g.astype("float32")/255.0
 
-def add_polygon_occluder(img, strength):
-    if np.random.rand() > 0.4 * strength:
-        return img
-
-    h,w = img.shape
-    pts = np.array([
-        [np.random.randint(w//3,w),0],
-        [w,0],
-        [w,h],
-        [np.random.randint(w//3,w),h]
-    ])
-    cv2.fillPoly(img,[pts],0)
-    return img
-
-def augment(img, strength):
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    img = add_polygon_occluder(img, strength)
-    return preprocess(cv2.cvtColor(img, cv2.COLOR_GRAY2BGR))
-
-def pick(imgs,y,l,dbl):
-    if np.random.rand()<0.35 and np.any(dbl):
-        i = np.random.choice(np.where(dbl)[0])
-    else:
-        i = np.random.randint(len(imgs))
-    return imgs[i], y[i], l[i]
+epoch_var = tf.Variable(0)
 
 def sample_source():
-    r=np.random.rand()
-    if r<P_V2: return pick(v2_imgs,v2_y,v2_l,v2_d)
-    if r<P_V2+P_V3: return pick(v3_imgs,v3_y,v3_l,v3_d)
-    if r<P_V2+P_V3+P_REAL: return pick(real_imgs,real_y,real_l,real_d)
-    return pick(hard_imgs,hard_y,hard_l,hard_d)
 
-epoch_var=tf.Variable(0)
+    e = int(epoch_var.numpy())
+
+    if e < 5:
+        pool = [(v2_imgs,v2_y,v2_l),(v3_imgs,v3_y,v3_l)]
+        w = [0.5,0.5]
+
+    elif e < 10:
+        pool = [(v2_imgs,v2_y,v2_l),
+                (v3_imgs,v3_y,v3_l),
+                (hard_imgs,hard_y,hard_l)]
+        w = [0.4,0.4,0.2]
+
+    else:
+        pool = [(v2_imgs,v2_y,v2_l),
+                (v3_imgs,v3_y,v3_l),
+                (hard_imgs,hard_y,hard_l),
+                (real_imgs,real_y,real_l)]
+        w = [0.3,0.3,0.2,0.2]
+
+    k = np.random.choice(len(pool), p=w)
+    imgs,y,l = pool[k]
+    i = np.random.randint(len(imgs))
+    return imgs[i], y[i], l[i]
 
 def gen_train():
     while True:
         img,y,l = sample_source()
-        
-        if (y < 0).any():
-            continue
-        
-        s=min(1.0,float(epoch_var.numpy())/15.0)
-        yield augment(img,s)[...,None], y, l
+        yield preprocess(img)[...,None], y, l
 
-train_ds=tf.data.Dataset.from_generator(
+train_ds = tf.data.Dataset.from_generator(
     gen_train,
     output_signature=(
         tf.TensorSpec((IMG_H,IMG_W+RIGHT_PAD,1),tf.float32),
@@ -145,17 +123,30 @@ train_ds=tf.data.Dataset.from_generator(
 @tf.keras.utils.register_keras_serializable()
 def collapse_hw(t):
     s = tf.shape(t)
-    return tf.reshape(t, [s[0], s[1], s[2] * s[3]])
+    return tf.reshape(t, [s[0], s[1], s[2]*s[3]])
 
-print("\nLoading base model...")
 infer_model = tf.keras.models.load_model(
     START_MODEL,
     custom_objects={"collapse_hw": collapse_hw},
     compile=False
 )
 
-for layer in infer_model.layers:
-    layer.trainable = True
+def set_trainable(stage):
+
+    for layer in infer_model.layers:
+        layer.trainable = False
+
+    if stage == 0:
+        for l in infer_model.layers[-2:]:
+            l.trainable = True
+
+    elif stage == 1:
+        for l in infer_model.layers[-4:]:
+            l.trainable = True
+
+    else:
+        for l in infer_model.layers:
+            l.trainable = True
 
 @tf.function
 def ctc_loss_fn(y_true,y_pred,label_len):
@@ -177,16 +168,9 @@ class CTCModel(tf.keras.Model):
         gn=tf.linalg.global_norm([gg for gg in g if gg is not None])
         return {"loss":loss,"grad_norm":gn}
 
-train_model=CTCModel(
+train_model = CTCModel(
     infer_model.inputs,
     infer_model.outputs
-)
-
-train_model.compile(
-    optimizer=tf.keras.optimizers.Adam(
-        learning_rate=5e-5,
-        clipnorm=5.0
-    )
 )
 
 def blank_stats(pred):
@@ -224,11 +208,30 @@ def run_epoch_test(model,n=120):
         print("GT:",gt[i],"| PR:",pr[i])
 
 for e in range(EPOCHS):
-    
+
     epoch_var.assign(e)
 
+    if e < 6:
+        stage = 0
+        lr = 2e-5
+    elif e < 12:
+        stage = 1
+        lr = 1e-5
+    else:
+        stage = 2
+        lr = 5e-6
+
+    set_trainable(stage)
+
+    train_model.compile(
+        optimizer=tf.keras.optimizers.Adam(
+            lr,
+            clipnorm=5.0
+        )
+    )
+
     print("\n====================")
-    print("FineTune Epoch",e+1,"/",EPOCHS)
+    print("Epoch",e+1,"stage",stage,"lr",lr)
 
     train_model.fit(
         train_ds,

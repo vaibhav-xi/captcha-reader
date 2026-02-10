@@ -6,9 +6,9 @@ import tensorflow as tf
 from keras import models
 import shutil   
 
-DATASET_DIR = "../dataset/generated_samples_v3"
-MODEL_PATH  = "ocr_ctc_infer_safe.keras"
-HARD_DIR    = "../dataset/hard_negatives_v3"   
+DATASET_DIR = "../dataset/full_samples"
+MODEL_PATH  = "ocr_ctc_infer_safe_v7.keras"
+HARD_DIR    = "../dataset/hard_negatives_v4"   
 
 IMG_W = 200
 IMG_H = 50

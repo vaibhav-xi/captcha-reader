@@ -5,7 +5,7 @@ import string
 import tensorflow as tf
 from tensorflow import keras
 
-KERAS_MODEL   = "ocr_ctc_infer_safe.keras"
+KERAS_MODEL   = "ocr_ctc_infer_safe_v7.keras"
 FEATURES_DIR  = "saved_features"
 DATASET_DIR   = "../../dataset/new_500"
 
