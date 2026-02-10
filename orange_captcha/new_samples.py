@@ -4,13 +4,15 @@ import string
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageChops, ImageFilter
 
-OUTPUT_DIR = "/Volumes/samsung_980/projects/captcha-reader/dataset/generated_samples_v5"
-TOTAL_IMAGES = 50000
+OUTPUT_DIR = "/Volumes/samsung_980/projects/captcha-reader/dataset/generated_samples_v6"
+TOTAL_IMAGES = 35000
 
 EXISTING_DIRS = [
     "../dataset/generated_samples_v2",
     "../dataset/generated_samples_v3",
     "../dataset/generated_samples_v4",
+    "../dataset/generated_samples_v5",
+    "../dataset/targeted_images",
 ]
 
 WIDTH = 265
