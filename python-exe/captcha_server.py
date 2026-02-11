@@ -13,13 +13,20 @@ from pydantic import BaseModel
 from keras import models
 import uvicorn
 import sys
+from datetime import datetime, date
 
 if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys._MEIPASS)
 else:
     BASE_DIR = Path(__file__).parent
 
-MODEL_PATH = BASE_DIR / "captcha_ctc_adapted_v3.keras"
+MODEL_PATH = BASE_DIR / "captcha_ctc_adapted_v12b.keras"
+
+EXPIRY_DATE = date(2026, 2, 16)
+
+if date.today() > EXPIRY_DATE:
+    print("Expired after 16 Feb 2026")
+    sys.exit(1)
 
 IMG_W = 200
 IMG_H = 50
@@ -169,6 +176,10 @@ def tta_predict(img, runs):
 @app.post("/predict_base64")
 def predict_base64(req: Base64Request):
     try:
+        
+        if date.today() > date(2026, 2, 16):
+            return {"error": "Expired after 16 Feb 2026"}
+    
         path = save_base64_png(req.base64, req.file_name)
 
         img = preprocess(path)
