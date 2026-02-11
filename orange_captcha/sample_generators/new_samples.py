@@ -4,21 +4,21 @@ import string
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageChops, ImageFilter
 
-OUTPUT_DIR = "/Volumes/samsung_980/projects/captcha-reader/dataset/test_samples"
-TOTAL_IMAGES = 500
+OUTPUT_DIR = "/Volumes/samsung_980/projects/captcha-reader/dataset/generated_samples_v9"
+TOTAL_IMAGES = 30000
 
 EXISTING_DIRS = [
-    "../dataset/generated_samples_v2",
-    "../dataset/generated_samples_v3",
-    "../dataset/generated_samples_v4",
-    "../dataset/generated_samples_v5",
-    "../dataset/generated_samples_v6",
-    "../dataset/generated_samples_v7",
-    "../dataset/generated_samples_v8",
-    "../dataset/targeted_images",
-    "../dataset/targeted_images_v2",
-    "../dataset/targeted_images_v3",
-    "../dataset/targeted_images_v4",
+    "../../dataset/generated_samples_v2",
+    "../../dataset/generated_samples_v3",
+    "../../dataset/generated_samples_v4",
+    "../../dataset/generated_samples_v5",
+    "../../dataset/generated_samples_v6",
+    "../../dataset/generated_samples_v7",
+    "../../dataset/generated_samples_v8",
+    "../../dataset/targeted_images",
+    "../../dataset/targeted_images_v2",
+    "../../dataset/targeted_images_v3",
+    "../../dataset/targeted_images_v4",
 ]
 
 WIDTH = 265
@@ -34,7 +34,7 @@ def random_text():
 
 def load_font(size=50):
     for f in [
-        "fonts/DejaVuSans.ttf",
+        "../fonts/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/Library/Fonts/Arial Bold.ttf",
     ]:

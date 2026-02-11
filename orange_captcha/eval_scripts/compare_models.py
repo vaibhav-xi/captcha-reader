@@ -5,9 +5,9 @@ import string
 import tensorflow as tf
 from tensorflow import keras
 
-MODEL_A = "ocr_ctc_infer_safe_v9.keras"
-MODEL_B = "ocr_ctc_infer_safe_v11.keras"
-DATASET_DIR = "../dataset/test_targeted_samples"
+MODEL_A = "../ocr_ctc_infer_safe_v9.keras"
+MODEL_B = "../ocr_ctc_infer_safe_v11.keras"
+DATASET_DIR = "../../dataset/test_targeted_samples"
 
 IMG_W = 200
 IMG_H = 50

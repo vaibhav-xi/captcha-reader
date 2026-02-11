@@ -5,13 +5,13 @@ import numpy as np
 import cv2
 from PIL import Image, ImageDraw, ImageFont
 
-OUT_DIR = "../dataset/test_targeted_samples"
+OUT_DIR = "../../dataset/targeted_samples_v5"
 COUNT = 500
 
 W = 200
 H = 50
 
-FONT_DIR = "fonts"
+FONT_DIR = "../fonts"
 FONTS = [os.path.join(FONT_DIR, f) for f in os.listdir(FONT_DIR)]
 
 CHARS = string.ascii_letters + string.digits + "@=#"
