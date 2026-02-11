@@ -5,8 +5,8 @@ import numpy as np
 import cv2
 from PIL import Image, ImageDraw, ImageFont
 
-OUT_DIR = "../../dataset/targeted_samples_v5"
-COUNT = 500
+OUT_DIR = "../../dataset/new_samples_v1"
+COUNT = 4000
 
 W = 200
 H = 50
