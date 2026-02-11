@@ -46,7 +46,7 @@ jobs:
             --hidden-import uvicorn.protocols ^
             --hidden-import uvicorn.protocols.http ^
             --hidden-import uvicorn.protocols.websockets ^
-            --add-data "ocr_ctc_infer_safe_v12.keras;."
+            --add-data "ocr_ctc_infer_safe_v12b.keras;."
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
