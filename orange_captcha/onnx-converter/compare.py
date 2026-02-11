@@ -7,7 +7,7 @@ from tensorflow import keras
 import onnxruntime as ort
 
 KERAS_MODEL = "ocr_ctc_infer_safe_v12b.keras"
-ONNX_MODEL  = "captcha_new.onnx"
+ONNX_MODEL  = "captcha.onnx"
 DATASET_DIR = "../../dataset/test_images"
 
 IMG_W = 200
