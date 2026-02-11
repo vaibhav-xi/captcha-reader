@@ -14,7 +14,7 @@ IMG_H = 50
 RIGHT_PAD = 12
 
 BATCH = 32
-EPOCHS = 6
+EPOCHS = 2
 STEPS_PER_EPOCH = 250
 
 DIR_BASE = "../dataset/generated_samples_v9"
@@ -23,11 +23,14 @@ DIR_REAL = "../dataset/orange-samples"
 DIR_HARD = "../dataset/hard_negatives_new"
 
 START_MODEL = "models/ocr_ctc_infer_safe_v11.keras"
+OUT_MODEL = "ocr_ctc_infer_safe_v12b.keras"
 
-W_BASE = 0.50
-W_TARGET = 0.35
-W_HARD = 0.10
-W_REAL = 0.05
+WEIGHTS = {
+    "base": 0.55,
+    "target": 0.25,
+    "hard": 0.15,
+    "real": 0.05
+}
 
 characters = string.ascii_letters + string.digits + "@=#"
 BLANK_IDX = len(characters)
@@ -43,36 +46,41 @@ num_to_char = layers.StringLookup(
     invert=True
 )
 
-def clean_label(name):
-    name = name.split("_")[0]
-    return name
-
 def load_set(dirpath):
+
+    if not os.path.exists(dirpath):
+        return [], np.zeros((0,1)), np.zeros((0,))
 
     paths, labels = [], []
 
     for f in os.listdir(dirpath):
-        if not f.endswith(".png"):
-            continue
-        label = clean_label(os.path.splitext(f)[0])
-        paths.append(os.path.join(dirpath,f))
-        labels.append(label)
+        if f.endswith(".png"):
+            label = os.path.splitext(f)[0]
+
+            if "_" in label:
+                continue
+
+            paths.append(os.path.join(dirpath,f))
+            labels.append(label)
+
+    if not paths:
+        return [], np.zeros((0,1)), np.zeros((0,))
 
     imgs = [cv2.imread(p) for p in paths]
 
     y = char_to_num(
-        tf.strings.unicode_split(labels, "UTF-8")
+        tf.strings.unicode_split(labels,"UTF-8")
     ).to_tensor(default_value=-1)
 
-    y = (y - 1).numpy().astype(np.int32)
+    y = (y-1).numpy().astype(np.int32)
     lens = np.array([len(t) for t in labels], np.int32)
 
-    good = np.all(y >= 0, axis=1)
+    good = np.all(y>=0, axis=1)
 
     return (
         [imgs[i] for i in range(len(imgs)) if good[i]],
         y[good],
-        lens[good],
+        lens[good]
     )
 
 base_imgs, base_y, base_l = load_set(DIR_BASE)
@@ -98,30 +106,37 @@ def preprocess(img):
 
     return g.astype("float32")/255.0
 
-pools = [
-    (base_imgs, base_y, base_l, W_BASE),
-    (target_imgs, target_y, target_l, W_TARGET),
-    (hard_imgs, hard_y, hard_l, W_HARD),
-    (real_imgs, real_y, real_l, W_REAL),
-]
+POOLS = []
+P = []
 
-weights = np.array([p[3] for p in pools])
-weights = weights / weights.sum()
+if base_imgs:
+    POOLS.append((base_imgs,base_y,base_l))
+    P.append(WEIGHTS["base"])
+
+if target_imgs:
+    POOLS.append((target_imgs,target_y,target_l))
+    P.append(WEIGHTS["target"])
+
+if hard_imgs:
+    POOLS.append((hard_imgs,hard_y,hard_l))
+    P.append(WEIGHTS["hard"])
+
+if real_imgs:
+    POOLS.append((real_imgs,real_y,real_l))
+    P.append(WEIGHTS["real"])
+
+P = np.array(P)
+P = P / P.sum()
 
 def sample_source():
-
-    k = np.random.choice(len(pools), p=weights)
-    imgs,y,l,_ = pools[k]
-
-    if len(imgs) == 0:
-        return sample_source()
+    k = np.random.choice(len(POOLS), p=P)
+    imgs,y,l = POOLS[k]
 
     i = np.random.randint(len(imgs))
     return imgs[i], y[i], l[i]
 
 def gen_train():
     while True:
-
         img,y,l = sample_source()
 
         if l > 10:
@@ -140,20 +155,17 @@ train_ds = tf.data.Dataset.from_generator(
 
 @tf.keras.utils.register_keras_serializable()
 def collapse_hw(t):
-    s = tf.shape(t)
-    return tf.reshape(t, [s[0], s[1], s[2]*s[3]])
+    s=tf.shape(t)
+    return tf.reshape(t,[s[0],s[1],s[2]*s[3]])
 
 infer_model = tf.keras.models.load_model(
     START_MODEL,
-    custom_objects={"collapse_hw": collapse_hw},
+    custom_objects={"collapse_hw":collapse_hw},
     compile=False
 )
 
-for layer in infer_model.layers:
+for layer in infer_model.layers[:-4]:
     layer.trainable = False
-
-for l in infer_model.layers[-4:]:
-    l.trainable = True
 
 @tf.function
 def ctc_loss_fn(y_true,y_pred,label_len):
@@ -165,23 +177,17 @@ def ctc_loss_fn(y_true,y_pred,label_len):
         y_true,y_pred,inp_len,label_len)
 
 class CTCModel(tf.keras.Model):
-
     def train_step(self,data):
-
-        x,y,l = data
-
+        x,y,l=data
         with tf.GradientTape() as tape:
-            p = self(x,training=True)
-            loss = tf.reduce_mean(ctc_loss_fn(y,p,l))
+            p=self(x,training=True)
+            loss=tf.reduce_mean(ctc_loss_fn(y,p,l))
+        g=tape.gradient(loss,self.trainable_variables)
 
-        g = tape.gradient(loss,self.trainable_variables)
-        g,_ = tf.clip_by_global_norm(g, 6.0)
+        g,_ = tf.clip_by_global_norm(g,5.0)
 
         self.optimizer.apply_gradients(zip(g,self.trainable_variables))
-
-        gn = tf.linalg.global_norm([gg for gg in g if gg is not None])
-
-        return {"loss":loss,"grad_norm":gn}
+        return {"loss":loss}
 
 train_model = CTCModel(
     infer_model.inputs,
@@ -189,7 +195,7 @@ train_model = CTCModel(
 )
 
 train_model.compile(
-    optimizer=tf.keras.optimizers.Adam(3e-6)
+    optimizer=tf.keras.optimizers.Adam(1e-6)
 )
 
 def decode_batch(pred):
@@ -202,22 +208,21 @@ def decode_batch(pred):
         out.append("".join(num_to_char(s+1).numpy().astype(str)))
     return out
 
-def run_real_test(n=120):
-
+def quick_real_check(n=80):
+    if len(real_imgs) == 0:
+        return
     idx=np.random.choice(len(real_imgs),n)
     xs=[preprocess(real_imgs[i])[...,None] for i in idx]
     gt=["".join(num_to_char(real_y[i]+1).numpy().astype(str)) for i in idx]
-
     p=infer_model.predict(np.array(xs),verbose=0)
     pr=decode_batch(p)
-
     acc=sum(a==b for a,b in zip(pr,gt))/n
     print("Real decode acc:",round(acc*100,2))
 
 for e in range(EPOCHS):
 
     print("\n====================")
-    print("Micro Epoch", e+1, "/", EPOCHS)
+    print("Micro Epoch",e+1,"/",EPOCHS)
 
     train_model.fit(
         train_ds,
@@ -225,8 +230,7 @@ for e in range(EPOCHS):
         epochs=1
     )
 
-    run_real_test()
+    quick_real_check()
 
-infer_model.save("ocr_ctc_infer_safe_v12.keras")
-
-print("\nSaved → ocr_ctc_infer_safe_v12.keras")
+infer_model.save(OUT_MODEL)
+print("\nSaved →", OUT_MODEL)
