@@ -1,11 +1,20 @@
 import tensorflow as tf
 from tensorflow import keras
 
-MODEL = "ocr_ctc_no_lambda.keras"
+@tf.keras.utils.register_keras_serializable()
+def collapse_hw(x):
+    s = tf.shape(x)
+    return tf.reshape(x, [s[0], s[1], s[2]*s[3]])
+
+MODEL = "ocr_ctc_onnx_safe.keras"
 OUT   = "ocr_ctc_savedmodel"
 
 print("Loading patched model...")
-m = keras.models.load_model(MODEL, compile=False)
+m = keras.models.load_model(
+    MODEL,
+    compile=False,
+    custom_objects={"collapse_hw": collapse_hw}
+)
 
 print("Building serving function...")
 

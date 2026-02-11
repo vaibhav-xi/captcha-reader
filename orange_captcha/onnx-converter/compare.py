@@ -6,9 +6,9 @@ import tensorflow as tf
 from tensorflow import keras
 import onnxruntime as ort
 
-KERAS_MODEL = "ocr_ctc_infer_safe_v12b.keras"
+KERAS_MODEL = "ocr_ctc_onnx_safe.keras"
 ONNX_MODEL  = "captcha.onnx"
-DATASET_DIR = "../../dataset/test_images"
+DATASET_DIR = "../../dataset/new_500"
 
 IMG_W = 200
 IMG_H = 50
@@ -85,6 +85,20 @@ def ctc_greedy(pred):
 
     return out
 
+def edit_distance(a,b):
+    import numpy as np
+    dp = np.zeros((len(a)+1,len(b)+1), int)
+    dp[:,0] = np.arange(len(a)+1)
+    dp[0,:] = np.arange(len(b)+1)
+    for i in range(1,len(a)+1):
+        for j in range(1,len(b)+1):
+            dp[i,j] = min(
+                dp[i-1,j]+1,
+                dp[i,j-1]+1,
+                dp[i-1,j-1] + (a[i-1]!=b[j-1])
+            )
+    return dp[-1,-1]
+
 print("Loading dataset...")
 X,Y = load_dataset(DATASET_DIR)
 print("Samples:", len(X))
@@ -139,6 +153,13 @@ txt_match = np.mean([a==b for a,b in zip(k_txt,o_txt)])
 
 print("Decoded text match:", txt_match)
 
+cer = np.mean([
+    edit_distance(a,b)/max(1,len(a))
+    for a,b in zip(k_txt,o_txt)
+])
+
+print("Char error rate:", cer)
+
 print("\nSamples:")
-for i in range(15):
+for i in range(min(15, len(Y))):
     print(Y[i], "|", k_txt[i], "|", o_txt[i])
