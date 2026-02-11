@@ -52,42 +52,49 @@ base = keras.models.load_model(
 )
 
 print("Loaded base model")
+feat = base.get_layer("collapse_hw").output
 
-dense = base.layers[-1]
+x = layers.Conv1D(
+    256,
+    3,
+    padding="same",
+    activation="relu",
+    name="tc1"
+)(feat)
 
-feat = dense.input
+x = layers.Conv1D(
+    256,
+    3,
+    padding="same",
+    activation="relu",
+    name="tc2"
+)(x)
 
-onnx_head = layers.Conv1D(
+logits = layers.Conv1D(
     NUM_CLASSES,
     1,
     activation="linear",
     name="onnx_head"
-)(feat)
+)(x)
 
-infer_model = keras.Model(base.input, onnx_head)
+probs = layers.Activation(
+    "softmax",
+    name="softmax"
+)(logits)
 
+infer_model = keras.Model(base.input, probs)
+
+print("ONNX-safe head attached")
+
+copied = 0
 for l in infer_model.layers:
     try:
         l.set_weights(base.get_layer(l.name).get_weights())
+        copied += 1
     except:
         pass
 
-W,b = dense.get_weights()
-infer_model.get_layer("onnx_head").set_weights([W[None,:,:], b])
-
-print("Weights copied + head transferred")
-
-for l in infer_model.layers:
-    try:
-        l.set_weights(base.get_layer(l.name).get_weights())
-    except:
-        pass
-    
-dense = base.layers[-1]
-W,b = dense.get_weights()
-infer_model.get_layer("onnx_head").set_weights([W[None,:,:], b])
-
-print("Weights copied + head transferred")
+print("Weights copied from backbone:", copied)
 
 def load_set(dirpath):
 
@@ -183,29 +190,57 @@ train_ds = tf.data.Dataset.from_generator(
     padding_values=(0.0, BLANK_IDX, 0)
 ).prefetch(tf.data.AUTOTUNE)
 
-def ctc_loss(y_true,y_pred,label_len):
-    b=tf.shape(y_pred)[0]
-    t=tf.shape(y_pred)[1]
-    inp_len=t*tf.ones((b,1),tf.int32)
-    label_len=label_len[:,None]
-    return tf.keras.backend.ctc_batch_cost(
-        y_true,y_pred,inp_len,label_len)
+def ctc_loss(y_true, y_pred, label_len):
+
+    b = tf.shape(y_pred)[0]
+    t = tf.shape(y_pred)[1]
+
+    inp_len = tf.fill([b, 1], t)
+    label_len = label_len[:, None]
+
+    loss = tf.keras.backend.ctc_batch_cost(
+        y_true,
+        y_pred,
+        inp_len,
+        label_len
+    )
+    
+    loss = tf.where(
+        tf.math.is_finite(loss),
+        loss,
+        tf.zeros_like(loss) + 50.0
+    )
+
+    return loss
 
 class CTCModel(keras.Model):
-    def train_step(self,data):
-        x,y,l=data
+    def train_step(self, data):
+
+        x, y, l = data
+
         with tf.GradientTape() as tape:
-            p=self(x,training=True)
-            loss=tf.reduce_mean(ctc_loss(y,p,l))
+            p = self(x, training=True)
+            loss = tf.reduce_mean(ctc_loss(y, p, l))
 
-        loss = tf.where(tf.math.is_finite(loss), loss, 1e6)
+        grads = tape.gradient(loss, self.trainable_variables)
 
-        g=tape.gradient(loss,self.trainable_variables)
-        g,_=tf.clip_by_global_norm(g,8.0)
-        self.optimizer.apply_gradients(zip(g,self.trainable_variables))
+        grads = [
+            tf.zeros_like(v) if g is None else g
+            for g, v in zip(grads, self.trainable_variables)
+        ]
 
-        gn=tf.linalg.global_norm([gg for gg in g if gg is not None])
-        return {"loss":loss,"grad_norm":gn}
+        grads, _ = tf.clip_by_global_norm(grads, 8.0)
+
+        self.optimizer.apply_gradients(
+            zip(grads, self.trainable_variables)
+        )
+
+        gn = tf.linalg.global_norm(grads)
+
+        return {
+            "loss": loss,
+            "grad_norm": gn
+        }
 
 train_model = CTCModel(infer_model.inputs, infer_model.outputs)
 
@@ -241,17 +276,26 @@ def run_epoch_test(n=120):
         print("GT:",gt[i],"| PR:",pr[i])
 
 def set_stage(stage):
-    for l in infer_model.layers:
-        l.trainable=False
 
-    if stage==0:
-        infer_model.get_layer("onnx_head").trainable=True
-    elif stage==1:
-        for l in infer_model.layers[-6:]:
-            l.trainable=True
+    for l in infer_model.layers:
+        l.trainable = False
+
+    if stage == 0:
+        for n in ["tc1", "tc2", "onnx_head"]:
+            infer_model.get_layer(n).trainable = True
+
+    elif stage == 1:
+        for l in infer_model.layers[-10:]:
+            l.trainable = True
+
     else:
         for l in infer_model.layers:
-            l.trainable=True
+            l.trainable = True
+            
+    trainables = sum(
+        np.prod(v.shape) for v in infer_model.trainable_variables
+    )
+    print("Trainable params:", trainables)
 
 for e in range(EPOCHS):
 
