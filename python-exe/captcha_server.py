@@ -20,7 +20,7 @@ if getattr(sys, "frozen", False):
 else:
     BASE_DIR = Path(__file__).parent
 
-MODEL_PATH = BASE_DIR / "captcha_ctc_adapted_v12b.keras"
+MODEL_PATH = BASE_DIR / "ocr_ctc_infer_safe_v12b.keras"
 
 EXPIRY_DATE = date(2026, 2, 16)
 
