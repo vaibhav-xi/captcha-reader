@@ -5,9 +5,9 @@ import string
 import tensorflow as tf
 from tensorflow import keras
 
-MODEL_A = "ocr_ctc_infer_safe_v9.keras"
-MODEL_B = "ocr_ctc_infer_safe_v11.keras"
-DATASET_DIR = "../dataset/test_targeted_samples"
+KERAS_MODEL = "ocr_ctc_infer_safe_v9.keras"
+SAVED_MODEL_DIR = "captcha_savedmodel"
+DATASET_DIR = "../../dataset/new_500"
 
 IMG_W = 200
 IMG_H = 50
@@ -125,15 +125,16 @@ def score(y,dec):
     print("Char accuracy :", round(char_ok/char_total,4))
     print("Mean edit dist:", round(ed/len(y),4))
 
+
 print("Loading dataset...")
 X,Y = load_dataset(DATASET_DIR)
 print("Images:", len(X))
 
 
-def eval_model(path):
+def eval_keras(path):
 
     print("\n====================")
-    print("Model:", path)
+    print("Keras model:", path)
 
     model = keras.models.load_model(
         path,
@@ -146,17 +147,54 @@ def eval_model(path):
 
     score(Y,dec)
 
-    print("\nSamples:")
-    for i in range(10):
-        print(Y[i], "|", dec[i])
+    return dec
+
+def load_savedmodel_predict_fn(path):
+
+    sm = tf.saved_model.load(path)
+
+    print("\nSavedModel signatures:")
+    print(list(sm.signatures.keys()))
+
+    fn = sm.signatures["serving_default"]
+
+    # get input/output tensor names
+    print("\nServing input:")
+    print(fn.structured_input_signature)
+
+    print("\nServing output:")
+    print(fn.structured_outputs)
+
+    return fn
+
+def eval_savedmodel(path):
+
+    print("\n====================")
+    print("SavedModel:", path)
+
+    fn = load_savedmodel_predict_fn(path)
+
+    preds = []
+
+    for i in range(0,len(X),BATCH):
+        batch = X[i:i+BATCH]
+        out = fn(tf.constant(batch))
+        
+        logits = list(out.values())[0].numpy()
+        preds.append(logits)
+
+    logits = np.concatenate(preds,axis=0)
+    dec = ctc_greedy(logits)
+
+    score(Y,dec)
 
     return dec
 
-
-dec_a = eval_model(MODEL_A)
-dec_b = eval_model(MODEL_B)
+dec_keras = eval_keras(KERAS_MODEL)
+dec_saved = eval_savedmodel(SAVED_MODEL_DIR)
 
 print("\n====================")
 print("Side-by-side samples:")
+
 for i in range(15):
-    print(Y[i], "|", dec_a[i], "|", dec_b[i])
+    print(Y[i], "|", dec_keras[i], "|", dec_saved[i])

@@ -5,8 +5,8 @@ import numpy as np
 import cv2
 from PIL import Image, ImageDraw, ImageFont
 
-OUT_DIR = "../dataset/targeted_images_v4"
-COUNT = 15000
+OUT_DIR = "../dataset/test_targeted_samples"
+COUNT = 500
 
 W = 200
 H = 50
@@ -163,7 +163,7 @@ def unique_name(label):
     if label not in seen:
         seen[label] = 0
     seen[label] += 1
-    return f"{label}_{seen[label]}"
+    return f"{label}"
 
 for i in range(COUNT):
 

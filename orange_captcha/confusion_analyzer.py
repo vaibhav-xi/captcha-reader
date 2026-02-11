@@ -7,8 +7,8 @@ from tensorflow import keras
 from collections import Counter, defaultdict
 import csv
 
-MODEL_PATH  = "ocr_ctc_infer_safe_v10.keras"
-DATASET_DIR = "../dataset/fresh_sample"
+MODEL_PATH  = "ocr_ctc_infer_safe_v11.keras"
+DATASET_DIR = "../dataset/test_samples"
 
 IMG_W = 200
 IMG_H = 50
