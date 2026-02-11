@@ -3,7 +3,12 @@ from tensorflow import keras
 from tensorflow.python.framework.convert_to_constants import \
     convert_variables_to_constants_v2
 
-print("TF version:", tf.__version__)
+tf.config.optimizer.set_experimental_options({
+    "layout_optimizer": False,
+    "constant_folding": True,
+    "shape_optimization": True,
+    "remapping": False,
+})
 
 IMG_W = 200
 IMG_H = 50
@@ -14,8 +19,6 @@ def collapse_hw(x):
     s = tf.shape(x)
     return tf.reshape(x, [s[0], s[1], s[2]*s[3]])
 
-print("Loading model...")
-
 model = keras.models.load_model(
     "ocr_ctc_infer_safe_v9.keras",
     compile=False,
@@ -25,31 +28,28 @@ model = keras.models.load_model(
 @tf.function(
     input_signature=[
         tf.TensorSpec([None, IMG_H, IMG_W+RIGHT_PAD, 1], tf.float32)
-    ]
+    ],
+    jit_compile=False
 )
 def serve(x):
     return model(x)
 
-print("Tracing function...")
 concrete = serve.get_concrete_function()
 
-print("Freezing...")
-frozen_func = convert_variables_to_constants_v2(concrete)
-graph_def = frozen_func.graph.as_graph_def()
+frozen = convert_variables_to_constants_v2(
+    concrete,
+    lower_control_flow=False,
+    aggressive_inlining=False
+)
 
 tf.io.write_graph(
-    graph_def,
+    frozen.graph,
     ".",
-    "captcha_full_frozen.pb",
+    "captcha_tfnet_compatible.pb",
     as_text=False
 )
 
-print("Frozen graph saved → captcha_full_frozen.pb")
+print("Saved captcha_tfnet_compatible.pb")
 
-print("\nInputs:")
-for inp in frozen_func.inputs:
-    print(inp.name, inp.shape)
-
-print("\nOutputs:")
-for out in frozen_func.outputs:
-    print(out.name, out.shape)
+print("Inputs:", [t.name for t in frozen.inputs])
+print("Outputs:", [t.name for t in frozen.outputs])

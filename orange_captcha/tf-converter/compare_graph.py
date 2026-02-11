@@ -5,7 +5,7 @@ import tensorflow as tf
 from tensorflow import keras
 
 KERAS_MODEL = "ocr_ctc_infer_safe_v9.keras"
-FROZEN_PB   = "captcha_frozen.pb"
+FROZEN_PB   = "captcha_tfnet_compatible.pb"
 DATASET_DIR = "../../dataset/new_500"
 
 IMG_W = 200

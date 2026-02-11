@@ -22,7 +22,7 @@ DIR_TARGET = "../dataset/targeted_samples_v5"
 DIR_REAL = "../dataset/orange-samples"
 DIR_HARD = "../dataset/hard_negatives_new"
 
-START_MODEL = "ocr_ctc_infer_safe_v11.keras"
+START_MODEL = "models/ocr_ctc_infer_safe_v11.keras"
 
 W_BASE = 0.50
 W_TARGET = 0.35
