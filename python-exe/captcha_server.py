@@ -202,4 +202,4 @@ def predict_base64(req: Base64Request):
 
 if __name__ == "__main__":
     print("Save directory:", SAVE_DIR)
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8080)
