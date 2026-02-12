@@ -4,8 +4,8 @@ import string
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageChops, ImageFilter
 
-OUTPUT_DIR = "/Volumes/samsung_980/projects/captcha-reader/dataset/generated_samples_v11"
-TOTAL_IMAGES = 30000
+OUTPUT_DIR = "/Volumes/samsung_980/projects/captcha-reader/dataset/generated_samples_v15"
+TOTAL_IMAGES = 12000
 
 EXISTING_DIRS = [
     "../../dataset/generated_samples_v2",
@@ -17,6 +17,10 @@ EXISTING_DIRS = [
     "../../dataset/generated_samples_v8",
     "../../dataset/generated_samples_v9",
     "../../dataset/generated_samples_v10",
+    "../../dataset/generated_samples_v11",
+    "../../dataset/generated_samples_v12",
+    "../../dataset/generated_samples_v13",
+    "../../dataset/generated_samples_v14",
     "../../dataset/targeted_images",
     "../../dataset/targeted_images_v2",
     "../../dataset/targeted_images_v3",
@@ -34,12 +38,14 @@ BLACK = (0, 0, 0)
 CHARS = string.ascii_letters + string.digits + "@#="
 
 CONFUSION_GROUPS = [
-    "lI1",
-    "O0",
+    "lI1Jj",
+    "O0Q",
     "B8",
     "S5",
     "Z2",
-    "G6",
+    "G6qg",
+    "m n".replace(" ",""),
+    "v y".replace(" ",""),
 ]
 
 CONFUSION_MAP = {}
@@ -51,18 +57,24 @@ def random_text():
     """Baseline random"""
     return "".join(random.choice(CHARS) for _ in range(random.randint(4, 6)))
 
+def double_letter_text():
+    t = list(random_text())
+    pos = random.randrange(len(t))
+    t.insert(pos, t[pos])
+    return "".join(t[:6])
 
 def confusion_text():
-    """Force at least one confusion pair"""
-    L = random.randint(4, 6)
+    L = random.randint(4,6)
     t = [random.choice(CHARS) for _ in range(L)]
 
-    pos = random.randrange(L)
-    grp = random.choice(CONFUSION_GROUPS)
-    t[pos] = random.choice(grp)
+    k = random.randint(2, min(3, L))
+    idxs = random.sample(range(L), k)
+
+    for pos in idxs:
+        grp = random.choice(CONFUSION_GROUPS)
+        t[pos] = random.choice(grp)
 
     return "".join(t)
-
 
 def case_flip_text():
     """Mixed case stress"""
@@ -87,17 +99,37 @@ def swapped_variant_text():
 
 
 def generate_targeted_text():
-    """Weighted chooser"""
     r = random.random()
 
-    if r < 0.35:
+    if r < 0.50:
         return confusion_text()
-    elif r < 0.60:
+    elif r < 0.72:
         return swapped_variant_text()
-    elif r < 0.80:
+    elif r < 0.88:
+        return double_letter_text()
+    elif r < 0.96:
         return case_flip_text()
     else:
         return random_text()
+    
+def thin_stroke_variant(text_mask):
+    if random.random() < 0.35:
+        return text_mask.filter(ImageFilter.MinFilter(3))
+    return text_mask
+
+def bowl_stress(img):
+    if random.random() < 0.30:
+        img = img.filter(ImageFilter.UnsharpMask(radius=1, percent=120))
+    return img
+
+def squeeze_variant(img):
+    if random.random() < 0.25:
+        w,h = img.size
+        img = img.resize((int(w*0.92), h))
+        canvas = Image.new("RGB",(w,h),ORANGE)
+        canvas.paste(img, ((w-img.size[0])//2,0))
+        return canvas
+    return img
 
 def load_font(size=50):
     for f in [
@@ -192,6 +224,10 @@ def generate_one(text, font, save_path):
 
     text_mask = Image.new("L",(WIDTH,HEIGHT),0)
     draw_text_mask(text_mask, text, font)
+    
+    orig_text_mask = text_mask.copy()
+    text_mask = thin_stroke_variant(text_mask)
+    
     text_mask = text_mask.filter(ImageFilter.GaussianBlur(0.5))
 
     orange_text_mask = ImageChops.multiply(text_mask, overlay_mask)
@@ -201,11 +237,13 @@ def generate_one(text, font, save_path):
     img.paste(ORANGE, mask=orange_text_mask)
 
     if random.random() < 0.75:
-        img = edge_tint(img, text_mask)
+        img = edge_tint(img, orig_text_mask)
 
-    if random.random() < 0.6:
+    if random.random() < 0.45:
         img = img.filter(ImageFilter.GaussianBlur(0.35))
-
+        
+    img = bowl_stress(img)
+    img = squeeze_variant(img)
     img.save(save_path, quality=random.randint(82,92))
 
 def load_existing_labels():
