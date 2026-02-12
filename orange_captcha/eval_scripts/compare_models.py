@@ -6,7 +6,7 @@ import tensorflow as tf
 from tensorflow import keras
 
 MODEL_A = "../ocr_ctc_onnx_safe_ft_v2.keras"
-MODEL_B = "../ocr_ctc_infer_safe_v12b.keras"
+MODEL_B = "../ocr_ctc_onnx_safe_ft_v5.keras"
 DATASET_DIR = "../../dataset/test_samples"
 
 IMG_W = 200
