@@ -7,7 +7,7 @@ from tensorflow import keras
 from collections import Counter, defaultdict
 import csv
 
-MODEL_PATH  = "../ocr_ctc_onnx_safe_ft_v7.keras"
+MODEL_PATH  = "../ocr_ctc_onnx_safe_ft_v8.keras"
 DATASET_DIR = "../../dataset/test_latest"
 
 IMG_W = 200
